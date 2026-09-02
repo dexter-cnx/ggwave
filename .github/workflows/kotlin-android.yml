@@ -8,6 +8,7 @@ on:
       - 'Cargo.lock'
       - 'crates/ggwave-core/**'
       - 'crates/ggwave-jni/**'
+      - 'packages/ggwave_flutter/rust/**'
       - 'packages/ggwave_kotlin/**'
       - 'tool/build_kotlin_android.sh'
       - 'tool/release_kotlin_check.sh'
@@ -18,6 +19,7 @@ on:
       - 'Cargo.lock'
       - 'crates/ggwave-core/**'
       - 'crates/ggwave-jni/**'
+      - 'packages/ggwave_flutter/rust/**'
       - 'packages/ggwave_kotlin/**'
       - 'tool/build_kotlin_android.sh'
       - 'tool/release_kotlin_check.sh'
@@ -37,8 +39,8 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - name: Install Android NDK
-        run: sdkmanager 'ndk;27.0.12077973'
+      - name: Install Android SDK and NDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.0.12077973'
 
       - uses: dtolnay/rust-toolchain@stable
         with:
