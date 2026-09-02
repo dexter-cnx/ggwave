@@ -33,11 +33,31 @@ The standalone APK consumes the public Kotlin API and is intended for the two-de
 
 This is **build validation only**. The physical-device acceptance section below is still required before claiming acoustic hardware validation.
 
-### Flutter Android — source implemented, build/hardware validation pending
+### Flutter Android — build validated, hardware validation pending
 
-The Flutter package shares `ggwave-core`, but its FRB/Cargokit/native-platform build gate and physical Android acceptance are tracked separately from the Kotlin AAR gate.
+GitHub Actions workflow `Flutter Android #25`, run `33615793479`, passed on 2026-09-02. The complete Flutter Android build gate validated:
 
-The dedicated `Flutter Android` workflow is pinned to Flutter 3.47.0, FRB 2.8.0, Android SDK 36, and NDK 27. Its build gate generates the FRB/Cargokit scaffold, formats/analyzes/tests both Dart packages, builds the Android example APK, and uploads that APK as a workflow artifact. Until the complete workflow passes, Flutter Android remains source implemented but build validation pending.
+- Flutter 3.47.0 / Dart 3.12 baseline setup;
+- FRB codegen 2.8.0 installation from crates.io;
+- monorepo dependency resolution for `ggwave_dart`, `ggwave_rs_flutter`, and the example app;
+- FRB/Cargokit integration and generated binding creation;
+- removal of FRB template-only demo/integration-test artifacts so they do not enter the public package API;
+- restoration of the package-owned `pubspec.yaml` and `lib/ggwave_rs_flutter.dart` after FRB integration;
+- normalization of the FRB 2.8 generated Android plugin scaffold from `compileSdk 33` to `compileSdk 36`;
+- Dart format/analyze/test;
+- Flutter format/analyze/test;
+- Android example scaffold generation using Flutter 3.47.0;
+- debug APK build;
+- artifact upload.
+
+Artifact from run `33615793479`:
+
+```text
+ggwave-rs-flutter-android-example
+workflow artifact SHA-256 digest: 76c6b2a47dc78e52aa98ecec6a3620cf1e692f746dcee4b8fd4729826240aaa0
+```
+
+This establishes **Flutter Android build validation**. It does not establish microphone/speaker acoustic behavior on physical devices. The physical-device acceptance section below remains required.
 
 ## Build prerequisites
 
@@ -81,7 +101,7 @@ Generate the native plugin scaffold with:
 ./tool/bootstrap_flutter_native.sh
 ```
 
-Then validate:
+The bootstrap intentionally preserves the repository-owned public manifest/barrel, removes FRB template demo files, and normalizes the generated Android plugin to compileSdk 36. Then validate:
 
 ```bash
 cargo fmt --check --all
@@ -95,7 +115,7 @@ cd example
 flutter run
 ```
 
-The CI workflow also builds the example APK so source implementation, build validation, and hardware validation remain independently evidenced.
+CI additionally creates an Android example scaffold and builds the APK so source implementation, build validation, and hardware validation remain independently evidenced.
 
 ## Physical-device procedure
 
