@@ -63,7 +63,10 @@ pub extern "system" fn Java_io_github_dextercnx_ggwave_GgWave_nativeSetUltrasoni
         throw(&mut env, "ggwave worker unavailable");
         return JNI_FALSE;
     }
-    match rx.recv().unwrap_or_else(|_| Err("ggwave worker stopped".into())) {
+    match rx
+        .recv()
+        .unwrap_or_else(|_| Err("ggwave worker stopped".into()))
+    {
         Ok(()) => JNI_TRUE,
         Err(error) => {
             throw(&mut env, error);
@@ -88,11 +91,17 @@ pub extern "system" fn Java_io_github_dextercnx_ggwave_GgWave_nativeEncode(
         }
     };
     let (tx, rx) = mpsc::channel();
-    if ENGINE.send(Command::Encode(payload, protocol_id, volume, tx)).is_err() {
+    if ENGINE
+        .send(Command::Encode(payload, protocol_id, volume, tx))
+        .is_err()
+    {
         throw(&mut env, "ggwave worker unavailable");
         return std::ptr::null_mut();
     }
-    match rx.recv().unwrap_or_else(|_| Err("ggwave worker stopped".into())) {
+    match rx
+        .recv()
+        .unwrap_or_else(|_| Err("ggwave worker stopped".into()))
+    {
         Ok(samples) => match env.new_float_array(samples.len() as i32) {
             Ok(array) => {
                 if let Err(error) = env.set_float_array_region(&array, 0, &samples) {
@@ -137,7 +146,10 @@ pub extern "system" fn Java_io_github_dextercnx_ggwave_GgWave_nativeDecode(
         throw(&mut env, "ggwave worker unavailable");
         return std::ptr::null_mut();
     }
-    match rx.recv().unwrap_or_else(|_| Err("ggwave worker stopped".into())) {
+    match rx
+        .recv()
+        .unwrap_or_else(|_| Err("ggwave worker stopped".into()))
+    {
         Ok(Some(payload)) => env.byte_array_from_slice(&payload).map_or_else(
             |error| {
                 throw(&mut env, error.to_string());
