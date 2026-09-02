@@ -357,9 +357,66 @@ codec/tuning logic ต้องมาจาก `ggwave-core` ไม่ duplicate
 
 ### 8.2 Monorepo development dependency
 
-ก่อน `ggwave_dart` publish, `packages/ggwave_flutter/pubspec_overrides.yaml` ชี้ `ggwave_dart` ไปที่ local sibling package เพื่อให้ CI/test monorepo resolve ได้โดยไม่ต้องปล่อย package ก่อนเวลา
+ก่อน `ggwave_dart` publish, `packages/ggwave_flutter/pubspec_overrides.yaml` ชี้ `ggwave_dart` ไปที่ local sibling package และ `example/pubspec_overrides.yaml` ชี้กลับไปที่ `../../ggwave_dart` เพื่อให้ package และ example resolve ได้ใน monorepo โดยไม่ต้อง publish dependency ก่อนเวลา
 
-### 8.3 Flutter Android CI
+override เหล่านี้เป็น development glue เท่านั้น public `pubspec.yaml` ยังประกาศ dependency ปกติสำหรับ registry release
+
+### 8.3 FRB 2.8 bootstrap ที่ใช้จริง
+
+project pin `flutter_rust_bridge` และ codegen ที่ 2.8.0 จึงต้องใช้ CLI contract ของ 2.8 โดยตรง:
+
+```bash
+cargo install flutter_rust_bridge_codegen --version 2.8.0 --locked
+flutter_rust_bridge_codegen integrate \
+  --template plugin \
+  --no-enable-integration-test
+flutter_rust_bridge_codegen generate
+```
+
+config ใช้ Rust module syntax ที่ FRB 2.8 รองรับ:
+
+```yaml
+rust_input: crate::api
+rust_root: rust/
+dart_output: lib/src/rust
+c_output: rust/src/frb_generated.h
+```
+
+FRB 2.8 `integrate` เป็น template overlay ไม่ใช่ idempotent project migrator สำหรับ custom plugin นี้ จึงมี side effects ที่ bootstrap ต้องจัดการอย่าง explicit:
+
+1. FRB เพิ่ม template demo API `simple`;
+2. FRB เพิ่ม integration-test scaffold;
+3. FRB mutate `pubspec.yaml`;
+4. FRB mutate public barrel `lib/ggwave_rs_flutter.dart`;
+5. Android plugin template ของ FRB 2.8 ใช้ `compileSdk 33`.
+
+`tool/bootstrap_flutter_native.sh` และ CI จึงทำ sequence เดียวกัน:
+
+```text
+save package-owned pubspec + public barrel
+      ↓
+FRB integrate plugin template
+      ↓
+remove rust/src/api/simple.rs
+remove lib/src/rust/api/simple.dart
+remove test_driver/ + integration_test/
+      ↓
+restore package-owned pubspec + public barrel
+      ↓
+normalize generated Android plugin compileSdk 33 -> 36
+      ↓
+assert no compileSdk 33 remains
+      ↓
+flutter pub get
+      ↓
+FRB generate from crate::api
+```
+
+เหตุผลที่ preserve public files แทนการยอมรับ template output คือ `ggwave_rs_flutter` มี public API และ dependency graph ของตัวเองอยู่แล้ว Template demo ของ FRB ไม่ควรกลายเป็น API ของ package โดยอัตโนมัติ
+
+บน Linux host ต้องมี `libasound2-dev` และ `pkg-config` เพราะ FRB ใช้ `cargo expand` กับ Rust crate ฝั่ง host ก่อน Android cross-compilation และ CPAL host dependency ต้อง resolve ได้ในขั้นนั้น
+
+### 8.4 Flutter Android CI — build validated
 
 workflow `Flutter Android` ใช้:
 
@@ -369,14 +426,19 @@ FRB codegen 2.8.0
 Android SDK 36
 NDK 27
 Rust stable
+Linux host ALSA development headers
 ```
 
-flow ที่ตั้งใจ validate:
+validated flow:
 
 ```text
 pub get Dart/Flutter/example
       ↓
-FRB integrate Cargokit for Android
+FRB integrate Cargokit
+      ↓
+cleanup template-only artifacts
+restore package manifest/barrel
+normalize Android compileSdk 36
       ↓
 FRB generate
       ↓
@@ -384,12 +446,42 @@ dart format/analyze/test
       ↓
 flutter format/analyze/test
       ↓
-build Android example APK
+Flutter 3.47 creates example/android scaffold
+      ↓
+restore repository-owned example pubspec + lib/main.dart
+      ↓
+flutter build apk --debug
       ↓
 upload example APK
 ```
 
-จนกว่า workflow นี้เขียว Flutter Android ยังถือว่า implementation present / build validation pending
+example Android scaffold ถูกสร้างใน CI จาก Flutter 3.47.0 ด้วย:
+
+```bash
+flutter create --platforms=android \
+  --project-name ggwave_rs_flutter_example .
+```
+
+ก่อน generate จะ preserve `example/pubspec.yaml` และ `example/lib/main.dart` แล้ว restore หลัง scaffold creation เพื่อให้ platform files มาจาก baseline Flutter SDK แต่ application example code ยังเป็นของ repository
+
+validated evidence:
+
+```text
+workflow: Flutter Android #25
+run id:   33615793479
+status:   success
+head:     b630fb107c2274ed76fba6b09ceb7ef4a93b4b41
+```
+
+artifact:
+
+```text
+ggwave-rs-flutter-android-example
+workflow artifact SHA-256:
+76c6b2a47dc78e52aa98ecec6a3620cf1e692f746dcee4b8fd4729826240aaa0
+```
+
+ดังนั้น Flutter Android อยู่ที่ **source implemented + build validated** แล้ว แต่ยังไม่ใช่ **hardware validated** จนกว่าจะผ่าน acoustic test บนอุปกรณ์จริง
 
 ## 9. End-to-end Kotlin send flow
 
@@ -464,11 +556,11 @@ Receive เป็นเส้นทางกลับกันจาก native a
 Tier 1 Flutter:
 
 ```text
-Android
-iOS
-macOS
-Windows
-Linux
+Android  — source implemented, build validated, hardware pending
+iOS      — source implemented, build validation pending
+macOS    — source implemented, build validation pending
+Windows  — source implemented, build validation pending
+Linux    — source implemented, build validation pending
 ```
 
 Web เป็น Tier 2 และควรใช้ Web Audio + AudioWorklet + WASM/JS backend แยก เพราะ browser permission/audio lifecycle/sample-rate behavior ต่างจาก CPAL native path
