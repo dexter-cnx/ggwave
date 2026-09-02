@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/ggwave-core",
+  "crates/ggwave-jni",
   "packages/ggwave_flutter/rust",
 ]
 
