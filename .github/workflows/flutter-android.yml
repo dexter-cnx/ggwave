@@ -69,7 +69,17 @@ jobs:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: |
           cd packages/ggwave_flutter
+          original_pubspec="$(mktemp)"
+          cp pubspec.yaml "$original_pubspec"
+          restore_pubspec() {
+            cp "$original_pubspec" pubspec.yaml
+            rm -f "$original_pubspec"
+          }
+          trap restore_pubspec EXIT
           flutter_rust_bridge_codegen integrate --template plugin --no-enable-integration-test
+          restore_pubspec
+          trap - EXIT
+          flutter pub get
           flutter_rust_bridge_codegen generate
 
       - name: Analyze and test Dart package
