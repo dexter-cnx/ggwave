@@ -10,6 +10,7 @@ on:
       - 'crates/ggwave-jni/**'
       - 'packages/ggwave_flutter/rust/**'
       - 'packages/ggwave_kotlin/**'
+      - 'examples/ggwave_kotlin_validation/**'
       - 'tool/build_kotlin_android.sh'
       - 'tool/release_kotlin_check.sh'
       - '.github/workflows/kotlin-android.yml'
@@ -21,6 +22,7 @@ on:
       - 'crates/ggwave-jni/**'
       - 'packages/ggwave_flutter/rust/**'
       - 'packages/ggwave_kotlin/**'
+      - 'examples/ggwave_kotlin_validation/**'
       - 'tool/build_kotlin_android.sh'
       - 'tool/release_kotlin_check.sh'
       - '.github/workflows/kotlin-android.yml'
@@ -59,6 +61,9 @@ jobs:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: bash ./tool/release_kotlin_check.sh
+
+      - name: Compile hardware validation app
+        run: gradle -p examples/ggwave_kotlin_validation :app:assembleDebug
 
       - name: Upload release AAR
         uses: actions/upload-artifact@v4
