@@ -29,9 +29,16 @@ flutter_rust_bridge_codegen integrate \
   --template plugin \
   --no-enable-integration-test
 
+# The FRB 2.8 plugin template also overlays demo/integration-test files that
+# reference its own `simple` API. ggwave_rs_flutter already has a custom Rust
+# API and tests, so these template-only artifacts must not become package API.
+rm -f rust/src/api/simple.rs
+rm -f lib/src/rust/api/simple.dart
+rm -rf test_driver integration_test
+
 restore_pubspec
 trap - EXIT
 flutter pub get
 flutter_rust_bridge_codegen generate
 
-echo 'Native Flutter scaffold and FRB bindings generated without changing pubspec.yaml.'
+echo 'Native Flutter scaffold and FRB bindings generated without changing pubspec.yaml or retaining template demo files.'
