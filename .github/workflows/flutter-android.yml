@@ -115,6 +115,15 @@ jobs:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: |
           cd packages/ggwave_flutter/example
+          original_pubspec="$(mktemp)"
+          original_main="$(mktemp)"
+          cp pubspec.yaml "$original_pubspec"
+          cp lib/main.dart "$original_main"
+          flutter create --platforms=android --project-name ggwave_rs_flutter_example .
+          cp "$original_pubspec" pubspec.yaml
+          cp "$original_main" lib/main.dart
+          rm -f "$original_pubspec" "$original_main"
+          flutter pub get
           flutter build apk --debug
 
       - name: Upload Flutter Android example APK
