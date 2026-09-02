@@ -9,6 +9,7 @@ Universal, publish-oriented ggwave bindings for Rust, Dart, Flutter, and Kotlin/
 - `packages/ggwave_dart` — pure-Dart contracts, protocol/tuning types, and sequence deduplication.
 - `packages/ggwave_flutter` — source directory for the publishable `ggwave_rs_flutter` package, backed by Rust/FRB and native audio I/O.
 - `packages/ggwave_kotlin` — native Android/Kotlin AAR facade over the same Rust core, prepared for Maven publication.
+- `examples/ggwave_kotlin_validation` — standalone native Android hardware-validation app that consumes the public Kotlin API.
 
 Application protocols such as Bingo, QR payloads, pairing formats, device IDs, or game state do **not** belong in this repository.
 
@@ -24,7 +25,7 @@ Both bindings use the same protocol IDs, payload limits, ultrasonic tuning, and 
 
 ## Flutter 3.47 / Android
 
-`ggwave_rs_flutter` now requires Flutter 3.47+ / Dart 3.12+. The Android/Kotlin library is structured for AGP 9 built-in Kotlin (`android.builtInKotlin=true`) and does not apply the legacy `org.jetbrains.kotlin.android` plugin.
+`ggwave_rs_flutter` requires Flutter 3.47+ / Dart 3.12+. The Android/Kotlin library is structured for AGP 9 built-in Kotlin (`android.builtInKotlin=true`) and does not apply the legacy `org.jetbrains.kotlin.android` plugin.
 
 The Kotlin Android build uses compileSdk 36, minSdk 23, AGP 9.0.0 and Gradle 9.1+.
 
@@ -36,15 +37,33 @@ Kotlin/Android is **build validated** on GitHub Actions as of 2026-09-02:
 - JNI cross-compiles for `arm64-v8a`, `armeabi-v7a`, and `x86_64`;
 - AGP 9 built-in Kotlin release AAR builds successfully with Gradle 9.1;
 - Maven POM generation succeeds;
-- release artifact `ggwave-kotlin-release` is produced by workflow run `33598931434`.
+- standalone validation app compiles successfully against the public AAR-facing API;
+- workflow run `33599743730` passed the complete Android build gate.
 
-This does **not** yet claim acoustic hardware validation. Physical-device audible/ultrasonic roundtrip, permission, lifecycle, and repeated start/stop acceptance remain tracked in `docs/ANDROID_VALIDATION.md`.
+The workflow publishes two artifacts:
+
+- `ggwave-kotlin-release` — release AAR;
+- `ggwave-kotlin-validation-apk` — debug APK for physical two-device acoustic validation.
+
+This does **not** yet claim acoustic hardware validation. Physical-device audible/ultrasonic roundtrip, permission, lifecycle, distance/orientation, and repeated start/stop acceptance remain tracked in `docs/ANDROID_VALIDATION.md`.
 
 ## Native platform targets
 
 Tier 1 Flutter targets are Android, iOS, macOS, Windows, and Linux. Web is planned as a separate Web Audio + WASM/JS backend instead of reusing the native CPAL path. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
 
 The Kotlin binding targets Android with `arm64-v8a`, `armeabi-v7a`, and `x86_64` Rust libraries.
+
+## Android validation app
+
+Build locally with:
+
+```bash
+gradle -p examples/ggwave_kotlin_validation :app:assembleDebug
+```
+
+Install the generated APK on two Android devices, grant microphone permission on the receiving device, start listening, then test Audible and Ultrasonic 12/15/18 kHz in both directions. See [`docs/ANDROID_VALIDATION.md`](docs/ANDROID_VALIDATION.md) for the acceptance matrix.
+
+## Release checks
 
 Before the first Flutter publish, generate and commit the FRB/Cargokit platform scaffold:
 
@@ -73,7 +92,7 @@ For the Kotlin AAR/Maven artifact run:
 
 `ggwave_flutter` is already an existing third-party pub.dev package, so this repository intentionally uses `ggwave_rs_flutter` for its Flutter release name.
 
-See [`RELEASE.md`](RELEASE.md), [`docs/ANDROID_VALIDATION.md`](docs/ANDROID_VALIDATION.md), and [`packages/ggwave_kotlin/README.md`](packages/ggwave_kotlin/README.md).
+For architecture and code flow, see [`CODE_WALKTHROUGH.md`](CODE_WALKTHROUGH.md). Also see [`RELEASE.md`](RELEASE.md), [`docs/ANDROID_VALIDATION.md`](docs/ANDROID_VALIDATION.md), [`docs/PLATFORMS.md`](docs/PLATFORMS.md), and [`packages/ggwave_kotlin/README.md`](packages/ggwave_kotlin/README.md).
 
 ## Repository
 
