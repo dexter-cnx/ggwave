@@ -1,6 +1,11 @@
 /// Mobile-oriented ggwave tuning values.
 class GgWaveTuning {
-  const GgWaveTuning({this.ultrasonicHz = 12000, this.audibleVolume = 60, this.ultrasonicVolume = 85, this.dedupWindow = const Duration(milliseconds: 800)});
+  const GgWaveTuning({
+    this.ultrasonicHz = 12000,
+    this.audibleVolume = 60,
+    this.ultrasonicVolume = 85,
+    this.dedupWindow = const Duration(milliseconds: 800),
+  });
   final double ultrasonicHz;
   final int audibleVolume;
   final int ultrasonicVolume;

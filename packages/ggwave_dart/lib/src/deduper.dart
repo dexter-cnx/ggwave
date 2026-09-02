@@ -14,16 +14,23 @@ class SequenceDeduper {
     if (_seen.contains(s)) return false;
     _seen.add(s);
     _order.add(s);
-    while (_order.length > capacity) { _seen.remove(_order.removeAt(0)); }
+    while (_order.length > capacity) {
+      _seen.remove(_order.removeAt(0));
+    }
     return true;
   }
 
-  void clear() { _seen.clear(); _order.clear(); }
+  void clear() {
+    _seen.clear();
+    _order.clear();
+  }
 }
 
 /// Byte-payload equality helper suitable for short packet caches.
 bool bytesEqual(Uint8List a, Uint8List b) {
   if (a.length != b.length) return false;
-  for (var i = 0; i < a.length; i++) { if (a[i] != b[i]) return false; }
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
   return true;
 }

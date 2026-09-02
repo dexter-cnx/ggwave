@@ -6,7 +6,7 @@ Android is the reference mobile target for `ggwave_rs_flutter`, and `ggwave-kotl
 
 ### Kotlin/Android AAR — build validated
 
-GitHub Actions workflow run `33599743730` (`Kotlin Android #17`) passed on 2026-09-02. The complete gate validated:
+GitHub Actions workflow `Kotlin Android #18`, run `33600474569`, passed on 2026-09-02. The complete build gate validated:
 
 - Rust formatting;
 - host JNI `cargo check` and `clippy -D warnings`;
@@ -15,21 +15,49 @@ GitHub Actions workflow run `33599743730` (`Kotlin Android #17`) passed on 2026-
 - release AAR assembly;
 - Maven POM generation;
 - standalone Android validation app compilation against the public Kotlin API;
-- upload of the `ggwave-kotlin-release` artifact.
+- upload of both the release AAR bundle and standalone validation APK.
 
-An earlier AAR artifact from run `33598931434` had SHA-256:
+Artifacts from run `33600474569`:
 
 ```text
-4b5a4bdf23c38ec10ebd44897e69226e12da099fbacf7f658877b189573e02db
+ggwave-kotlin-release
+SHA-256: 0b34957c62ac752d1856584bf543007b53d59e981bfc4f1e3c5c2721d2c3606f
 ```
 
-Workflow #18 additionally publishes the standalone validation APK as `ggwave-kotlin-validation-apk`, so physical-device testing does not require building a test application manually.
+```text
+ggwave-kotlin-validation-apk
+SHA-256: 6ca205abe5c17150be07e1b59d1c6f23b41b96b9adb45f58728c7750cb737be1
+```
+
+The standalone APK consumes the public Kotlin API and is intended for the two-device procedure below, so physical-device testing does not require creating a separate host application.
 
 This is **build validation only**. The physical-device acceptance section below is still required before claiming acoustic hardware validation.
 
-### Flutter Android — implementation present, full release/hardware validation pending
+### Flutter Android — build validated, hardware validation pending
 
-The Flutter package shares `ggwave-core`, but its FRB/Cargokit/native-platform release gate and physical Android acceptance are tracked separately from the Kotlin AAR gate.
+GitHub Actions workflow `Flutter Android #25`, run `33615793479`, passed on 2026-09-02. The complete Flutter Android build gate validated:
+
+- Flutter 3.47.0 / Dart 3.12 baseline setup;
+- FRB codegen 2.8.0 installation from crates.io;
+- monorepo dependency resolution for `ggwave_dart`, `ggwave_rs_flutter`, and the example app;
+- FRB/Cargokit integration and generated binding creation;
+- removal of FRB template-only demo/integration-test artifacts so they do not enter the public package API;
+- restoration of the package-owned `pubspec.yaml` and `lib/ggwave_rs_flutter.dart` after FRB integration;
+- normalization of the FRB 2.8 generated Android plugin scaffold from `compileSdk 33` to `compileSdk 36`;
+- Dart format/analyze/test;
+- Flutter format/analyze/test;
+- Android example scaffold generation using Flutter 3.47.0;
+- debug APK build;
+- artifact upload.
+
+Artifact from run `33615793479`:
+
+```text
+ggwave-rs-flutter-android-example
+workflow artifact SHA-256 digest: 76c6b2a47dc78e52aa98ecec6a3620cf1e692f746dcee4b8fd4729826240aaa0
+```
+
+This establishes **Flutter Android build validation**. It does not establish microphone/speaker acoustic behavior on physical devices. The physical-device acceptance section below remains required.
 
 ## Build prerequisites
 
@@ -54,24 +82,26 @@ Build the standalone validation app locally with:
 gradle -p examples/ggwave_kotlin_validation :app:assembleDebug
 ```
 
-Or download the `ggwave-kotlin-validation-apk` artifact from a successful `Kotlin Android` GitHub Actions run.
+Or download the `ggwave-kotlin-validation-apk` artifact from successful run `33600474569`.
 
 ### Flutter Android
 
 - Flutter >= 3.47
 - Dart >= 3.12
 - Rust >= 1.77
-- Android SDK + NDK
-- `flutter_rust_bridge_codegen` 2.8.0
-- physical Android device with microphone and speaker
+- Android SDK 36
+- Android NDK 27
+- `flutter_rust_bridge_codegen` 2.8.0 installed as a Cargo binary
+- Linux host builds additionally need ALSA development headers and `pkg-config` because FRB `cargo expand` compiles the Rust crate on the host before Android cross-compilation
+- physical Android device with microphone and speaker for hardware acceptance
 
-Generate the native plugin scaffold once with:
+Generate the native plugin scaffold with:
 
 ```bash
 ./tool/bootstrap_flutter_native.sh
 ```
 
-Then validate:
+The bootstrap intentionally preserves the repository-owned public manifest/barrel, removes FRB template demo files, and normalizes the generated Android plugin to compileSdk 36. Then validate:
 
 ```bash
 cargo fmt --check --all
@@ -84,6 +114,8 @@ flutter test
 cd example
 flutter run
 ```
+
+CI additionally creates an Android example scaffold and builds the APK so source implementation, build validation, and hardware validation remain independently evidenced.
 
 ## Physical-device procedure
 
