@@ -11,7 +11,7 @@ echo '== JNI host compile/lints =='
 (cd "$ROOT" && cargo fmt --check --all && cargo check -p ggwave-jni && cargo clippy -p ggwave-jni -- -D warnings)
 
 echo '== Android Rust ABIs =='
-"$ROOT/tool/build_kotlin_android.sh"
+bash "$ROOT/tool/build_kotlin_android.sh"
 for abi in arm64-v8a armeabi-v7a x86_64; do
   test -f "$ROOT/packages/ggwave_kotlin/src/main/jniLibs/$abi/libggwave_jni.so" || {
     echo "missing JNI library for $abi" >&2
