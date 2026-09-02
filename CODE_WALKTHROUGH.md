@@ -1,8 +1,8 @@
 # Code Walkthrough — ggwave
 
-เอกสารนี้อธิบายโครงสร้างและ data flow ของ repository `ggwave` ตั้งแต่ Rust core ไปจนถึง Flutter และ native Android/Kotlin โดยเน้นว่า core ต้องเป็น universal และไม่ผูกกับ application protocol เช่น Bingo, QR, pairing หรือ game state
+เอกสารนี้อธิบายโครงสร้างและ data flow ของ repository `ggwave` ตั้งแต่ Rust core ไปจนถึง Flutter และ native Android/Kotlin โดยยึดหลักว่า core ต้องเป็น universal และไม่ผูกกับ application protocol เช่น Bingo, QR, pairing หรือ game state
 
-## 1. ภาพรวมสถาปัตยกรรม
+## 1. Architecture overview
 
 ```text
                            Application layer
@@ -23,30 +23,28 @@
                            ggwave-rs
 ```
 
-หลักการสำคัญคือ `ggwave-core` ไม่รู้จัก Flutter, Android, microphone, speaker หรือ payload semantics ของ application ใด ๆ
+`ggwave-core` ไม่รู้จัก Flutter, Android, microphone, speaker หรือ payload semantics ของ application ใด ๆ การแบ่ง layer แบบนี้ทำให้ Rust core สามารถ reuse กับ binding ภาษาอื่นได้โดยไม่ต้องลาก Flutter/Android dependency เข้าไป
 
 ## 2. Rust core — `crates/ggwave-core`
 
-ไฟล์หลักคือ:
+ไฟล์หลัก:
 
 ```text
 crates/ggwave-core/src/lib.rs
 ```
 
-core เป็น source of truth ของ behavior ที่ binding ทุกภาษาใช้ร่วมกัน ได้แก่:
+core เป็น source of truth ของ:
 
 - protocol IDs
 - payload size limit
 - codec initialization
 - sample rate
-- ultrasonic start frequency
+- ultrasonic tuning
 - ultrasonic pre-emphasis
 - encode/decode
-- packet deduplication
+- optional packet deduplication
 
 ### 2.1 Stable protocol IDs
-
-Public API กำหนด protocol IDs คงที่:
 
 ```rust
 pub enum Protocol {
@@ -55,35 +53,22 @@ pub enum Protocol {
 }
 ```
 
-ค่า `5` เป็น app-facing stable ID ของ repository นี้ ส่วนภายใน map ไป upstream:
+`UltrasonicFast = 5` เป็น stable app-facing ID ของ repository นี้ ส่วนภายใน map ไป upstream `GGWAVE_PROTOCOL_ULTRASOUND_FAST` ดังนั้น consumer ไม่ต้องรู้ enum value ภายในของ upstream library
 
-```rust
-ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_FAST
-```
-
-เหตุผลที่มี mapping layer คือ consumer ไม่ควรผูกกับ enum value ภายในของ upstream library โดยตรง
-
-### 2.2 Tuning
-
-ค่าเริ่มต้น:
+### 2.2 Core defaults
 
 ```text
-ultrasonic start frequency = 12,000 Hz
-pre-emphasis gain          = 1.8
-sample rate                = 48,000 Hz
+MAX_PAYLOAD               140 bytes
+sample rate               48,000 Hz
+ultrasonic start          12,000 Hz
+ultrasonic pre-emphasis   1.8
+dedup window              800 ms
+frequency range           8,000..19,000 Hz
 ```
 
-frequency ที่ยอมรับอยู่ในช่วง:
-
-```text
-8,000 .. 19,000 Hz
-```
-
-`Tuning::apply()` ตั้งทั้ง RX และ TX ultrasonic start frequency ผ่าน ggwave FFI เพื่อให้ encode และ decode ใช้ profile เดียวกัน
+`Tuning::apply()` ตั้งทั้ง TX และ RX ultrasonic start frequency ผ่าน ggwave FFI เพื่อให้ encode/decode ใช้ profile เดียวกัน
 
 ### 2.3 Codec ownership
-
-`Codec` ห่อ `ggwave_rs::GgWave`:
 
 ```rust
 pub struct Codec {
@@ -92,11 +77,9 @@ pub struct Codec {
 }
 ```
 
-upstream `GgWave` เป็น `!Send` / `!Sync` ดังนั้นห้ามถือ instance แล้วโยนข้าม thread แบบทั่วไป นี่เป็นข้อจำกัดเชิงสถาปัตยกรรมที่ binding ต้องเคารพ
+upstream `GgWave` เป็น `!Send` / `!Sync` ดังนั้น binding ห้ามแชร์ instance ข้าม thread แบบทั่วไป นี่เป็นเหตุผลสำคัญที่ JNI layer ใช้ dedicated worker thread แทนการเขียน `unsafe impl Send`
 
-### 2.4 Encode
-
-flow:
+### 2.4 Encode path
 
 ```text
 payload bytes
@@ -116,20 +99,18 @@ Vec<f32>
 optional ultrasonic pre-emphasis
 ```
 
-ultrasonic pre-emphasis ปัจจุบันใช้ high-frequency emphasis แบบง่าย:
+ultrasonic pre-emphasis ปัจจุบันใช้:
 
 ```rust
 (input - 0.85 * previous) * gain
 ```
 
-แล้ว clamp ให้อยู่ในช่วง `[-1.0, 1.0]`
+แล้ว clamp เป็น `[-1.0, 1.0]`
 
-### 2.5 Decode
-
-receive path รับ mono `f32` PCM แล้วแปลงกลับเป็น little-endian bytes ก่อนส่งให้ upstream decoder:
+### 2.5 Decode path
 
 ```text
-Float32 PCM
+Float32 mono PCM
    ↓
 f32_to_bytes
    ↓
@@ -138,13 +119,11 @@ ggwave decode
 Option<Vec<u8>>
 ```
 
-`None` หมายถึง chunk นั้นยังไม่มี complete packet
+`None` หมายถึง decoder ยังไม่มี complete packet จาก chunk ปัจจุบัน
 
-### 2.6 Deduplication
+### 2.6 Dedup
 
-เมื่อเปิด feature `dedup`, `PacketDeduper` จะจำ payload ที่เพิ่งเห็นใน sliding time window ค่า default 800 ms
-
-จุดนี้เป็น transport-level duplicate suppression เท่านั้น ไม่ตีความ sequence number หรือ application semantics
+เมื่อเปิด feature `dedup`, `PacketDeduper` suppress payload ซ้ำภายใน sliding window 800 ms โดยไม่ตีความ sequence number หรือ application-specific semantics
 
 ## 3. JNI bridge — `crates/ggwave-jni`
 
@@ -154,25 +133,21 @@ Option<Vec<u8>>
 crates/ggwave-jni/src/lib.rs
 ```
 
-ปัญหาหลักที่ JNI layer ต้องแก้คือ JVM สามารถเรียก native API จากหลาย threads แต่ `GgWave` ไม่ควรถูกย้ายข้าม threads
-
-แนวทางที่ใช้คือ dedicated Rust worker:
+JNI ต้องรองรับการถูกเรียกจากหลาย JVM threads แต่ codec upstream ไม่ควรถูกย้ายข้าม thread จึงใช้ architecture:
 
 ```text
-Kotlin/Java thread
+Kotlin/Java caller
       ↓
 JNI function
       ↓
 mpsc Command
       ↓
-Dedicated Rust worker thread
+Dedicated Rust worker
       ↓
-Codec instance owned here only
+single owned Codec instance
 ```
 
-### 3.1 Command model
-
-worker รับคำสั่งสามชนิด:
+worker commands ปัจจุบัน:
 
 ```text
 SetFrequency
@@ -180,18 +155,16 @@ Encode
 Decode
 ```
 
-แต่ละ command มี one-shot reply channel กลับไปยัง JNI caller
+แต่ละ command มี reply channel กลับ caller
 
-ข้อดีคือ:
+ข้อดี:
 
-- codec อยู่ thread เดียวตลอดอายุ process
+- codec ถูกสร้าง/ใช้งานบน Rust worker เดียว
 - Kotlin เรียกจาก main/background threads ได้
-- ไม่ต้องเขียน `unsafe impl Send for GgWave`
-- ownership boundary อ่านง่ายและ audit ได้
+- ไม่มี `unsafe impl Send for GgWave`
+- thread ownership audit ได้ง่าย
 
-### 3.2 JNI exports
-
-JNI exports ตรงกับ static native methods ใน Kotlin `GgWave`:
+JNI exports:
 
 ```text
 nativeSetUltrasonicFrequency
@@ -199,24 +172,22 @@ nativeEncode
 nativeDecode
 ```
 
-Rust errors ถูกแปลงเป็น `IllegalStateException` ฝั่ง JVM
+Rust errors ถูกส่งกลับเป็น `IllegalStateException`
 
-## 4. Kotlin facade — `packages/ggwave_kotlin`
+## 4. Kotlin Android binding — `packages/ggwave_kotlin`
 
-package นี้เป็น Android library ที่ไม่ต้องมี Flutter
-
-compatibility ปัจจุบัน:
+package นี้เป็น native Android AAR และไม่ต้องมี Flutter
 
 ```text
 minSdk       23
 compileSdk   36
 AGP          9.0.0
 Gradle       >= 9.1
-Kotlin mode  built-in Kotlin
+Kotlin       built-in Kotlin
 ABIs         arm64-v8a, armeabi-v7a, x86_64
 ```
 
-เปิด built-in Kotlin ด้วย:
+เปิด built-in Kotlin ผ่าน:
 
 ```properties
 android.builtInKotlin=true
@@ -224,27 +195,23 @@ android.builtInKotlin=true
 
 และไม่ apply legacy `org.jetbrains.kotlin.android` plugin
 
-### 4.1 Low-level API
-
-`GgWave` เป็น codec facade:
+### 4.1 Low-level codec API
 
 ```kotlin
 GgWave.setUltrasonicFrequency(12_000f)
 
-val waveform: FloatArray = GgWave.encode(
+val waveform = GgWave.encode(
     data = "hello".encodeToByteArray(),
     protocolId = GgWave.PROTOCOL_ULTRASONIC_FAST,
     volume = 85,
 )
 
-val payload: ByteArray? = GgWave.decode(samples)
+val payload = GgWave.decode(samples)
 ```
 
-เหมาะกับ consumer ที่มี audio engine ของตัวเอง
+เหมาะกับ app ที่มี audio engine ของตัวเอง
 
 ### 4.2 High-level Android audio API
-
-`GgWaveAudio` เป็น convenience transport สำหรับ Android:
 
 ```kotlin
 GgWaveAudio.startListening { payload ->
@@ -258,27 +225,17 @@ GgWaveAudio.send(
 )
 ```
 
-receive ใช้ `AudioRecord`, playback ใช้ `AudioTrack`
+capture ใช้ `AudioRecord`, playback ใช้ `AudioTrack`, PCM เป็น 48 kHz mono float ให้ตรงกับ codec default
 
-library ใช้ 48 kHz mono PCM เพื่อให้ตรงกับ codec default
+`MessageListener` เป็น Kotlin `fun interface` จึงใช้ lambda ได้และ Java caller ใช้เป็น SAM interface ได้
 
 ### 4.3 Permission ownership
 
-AAR declare:
+AAR declare `android.permission.RECORD_AUDIO` แต่ runtime permission request เป็นหน้าที่ host app เพราะ library ไม่ควรผูก UI/Activity policy ให้ consumer
 
-```text
-android.permission.RECORD_AUDIO
-```
+receive callback ทำงานบน capture thread ถ้าจะอัปเดต UI ต้อง dispatch กลับ main thread
 
-แต่ runtime permission request เป็นหน้าที่ host app เพราะ library ไม่ควรบังคับ UI/Activity lifecycle policy ให้ consumer
-
-### 4.4 Callback thread
-
-receive callback ทำงานบน capture thread ของ library ถ้าจะ update Android UI ต้อง dispatch กลับ main thread
-
-`MessageListener` เป็น Kotlin `fun interface` จึงใช้ lambda ใน Kotlin ได้ และยังเป็น Java-friendly SAM interface
-
-## 5. Android hardware validation app
+## 5. Kotlin hardware validation app
 
 อยู่ที่:
 
@@ -286,47 +243,95 @@ receive callback ทำงานบน capture thread ของ library ถ้�
 examples/ggwave_kotlin_validation
 ```
 
-จุดประสงค์ของ app นี้คือทดสอบ public consumer path จริง ไม่เรียก Rust/JNI implementation ภายในโดยตรง
+app นี้ consume public Kotlin API จริง ไม่ bypass JNI เพื่อให้ compile/run behavior ใกล้ consumer จริงที่สุด
 
-validation controls ครอบคลุม:
+รองรับ:
 
-- microphone permission
-- start listening
-- stop listening
+- request microphone permission
+- start/stop listening
 - Audible Fast
 - Ultrasonic 12 kHz
 - Ultrasonic 15 kHz
 - Ultrasonic 18 kHz
 - sent/received counters
 - last received payload
-- lifecycle stop on pause
+- stop listening on lifecycle pause
 
-ใช้สองเครื่องเพื่อทดสอบ TX/RX สลับกัน และวัด behavior ตามระยะ/orientation
+CI compile app นี้ทุกครั้งเพื่อกัน public API drift
 
-## 6. Dart package — `packages/ggwave_dart`
+## 6. Kotlin Android validated build path
 
-`ggwave_dart` เป็น pure Dart layer จึงไม่ depend on Flutter หรือ native FFI
+GitHub Actions workflow `Kotlin Android` ตรวจ:
 
-หน้าที่หลัก:
+```text
+cargo fmt --check
+      ↓
+cargo check -p ggwave-jni
+      ↓
+cargo clippy -p ggwave-jni -- -D warnings
+      ↓
+cargo-ndk
+      ├─ arm64-v8a
+      ├─ armeabi-v7a
+      └─ x86_64
+      ↓
+AGP 9 + built-in Kotlin + Gradle 9.1
+      ↓
+release AAR
+      ↓
+Maven POM
+      ↓
+compile standalone validation app
+      ↓
+upload AAR + validation APK
+```
 
-- stable protocol model
+validated evidence ล่าสุด:
+
+```text
+workflow: Kotlin Android #18
+run id:   33600474569
+status:   success
+```
+
+artifacts:
+
+```text
+ggwave-kotlin-release
+ggwave-kotlin-validation-apk
+```
+
+artifact digests:
+
+```text
+AAR SHA-256: 0b34957c62ac752d1856584bf543007b53d59e981bfc4f1e3c5c2721d2c3606f
+APK SHA-256: 6ca205abe5c17150be07e1b59d1c6f23b41b96b9adb45f58728c7750cb737be1
+```
+
+นี่คือ **build validation** ยังไม่ใช่ acoustic hardware validation
+
+## 7. Dart package — `packages/ggwave_dart`
+
+pure Dart layer ไม่มี Flutter/FFI dependency
+
+หน้าที่:
+
+- protocol model
 - tuning model
 - sequence deduper
 - transport abstraction
 
-แนวคิดคือ application สามารถเขียน business logic โดย depend กับ interface ระดับ Dart ก่อน แล้วเลือก backend จริงภายหลัง
+application logic จึงสามารถ depend กับ Dart contract โดยไม่ต้องรู้ native implementation และ package นี้ไม่รู้จัก Bingo packet หรือ QR format
 
-ตัว package ไม่รู้จัก Bingo packet หรือ QR string format
+## 8. Flutter package — `packages/ggwave_flutter`
 
-## 7. Flutter package — `packages/ggwave_flutter`
-
-ชื่อ package ที่ตั้งใจ publish คือ:
+publish name:
 
 ```text
 ggwave_rs_flutter
 ```
 
-เนื่องจากชื่อ `ggwave_flutter` มี package อื่นใช้บน pub.dev อยู่แล้ว
+ไม่ใช้ชื่อ `ggwave_flutter` เพราะมี third-party package ใช้ชื่อนั้นบน pub.dev อยู่แล้ว
 
 baseline:
 
@@ -336,35 +341,57 @@ Dart    >= 3.12.0
 FRB      2.8.0
 ```
 
-### 7.1 Responsibility
+Flutter 3.47 CI ถูก pin ที่ `3.47.0` โดยตรงเพื่อให้ compatibility reproducible
+
+### 8.1 Responsibility
 
 Flutter layer รับผิดชอบ:
 
-- Flutter-facing API
-- FRB bridge
+- Flutter-facing transport API
+- FRB boundary
 - native audio lifecycle
-- microphone/speaker integration
+- microphone/speaker I/O
 - platform packaging
 
-ไม่ควร duplicate codec/tuning logic จาก `ggwave-core`
+codec/tuning logic ต้องมาจาก `ggwave-core` ไม่ duplicate ที่ Flutter layer
 
-### 7.2 Native platform targets
+### 8.2 Monorepo development dependency
 
-Tier 1 target plan:
+ก่อน `ggwave_dart` publish, `packages/ggwave_flutter/pubspec_overrides.yaml` ชี้ `ggwave_dart` ไปที่ local sibling package เพื่อให้ CI/test monorepo resolve ได้โดยไม่ต้องปล่อย package ก่อนเวลา
+
+### 8.3 Flutter Android CI
+
+workflow `Flutter Android` ใช้:
 
 ```text
-Android
-iOS
-macOS
-Windows
-Linux
+Flutter 3.47.0 stable
+FRB codegen 2.8.0
+Android SDK 36
+NDK 27
+Rust stable
 ```
 
-Web เป็น Tier 2 เพราะ browser audio model ต่างจาก native อย่างมีนัยสำคัญ และควรใช้ Web Audio + AudioWorklet + WASM/JS backend แยก
+flow ที่ตั้งใจ validate:
 
-## 8. End-to-end send flow
+```text
+pub get Dart/Flutter/example
+      ↓
+FRB integrate Cargokit for Android
+      ↓
+FRB generate
+      ↓
+dart format/analyze/test
+      ↓
+flutter format/analyze/test
+      ↓
+build Android example APK
+      ↓
+upload example APK
+```
 
-### Kotlin / Android
+จนกว่า workflow นี้เขียว Flutter Android ยังถือว่า implementation present / build validation pending
+
+## 9. End-to-end Kotlin send flow
 
 ```text
 Application payload
@@ -390,27 +417,7 @@ AudioTrack
 Speaker
 ```
 
-### Flutter
-
-conceptually:
-
-```text
-Dart payload
-   ↓
-ggwave_rs_flutter
-   ↓ FRB
-Rust native adapter
-   ↓
-ggwave-core
-   ↓
-PCM
-   ↓
-native audio output
-```
-
-## 9. End-to-end receive flow
-
-### Kotlin / Android
+## 10. End-to-end Kotlin receive flow
 
 ```text
 Microphone
@@ -432,80 +439,58 @@ complete payload?
    └─ yes -> MessageListener
 ```
 
-## 10. Build and release gates
+## 11. Flutter conceptual flow
 
-### Rust + Flutter/Dart
-
-```bash
-./tool/release_check.sh
-```
-
-### Kotlin Android
-
-```bash
-./tool/release_kotlin_check.sh
-```
-
-Kotlin gate ตรวจ:
+Send:
 
 ```text
-cargo fmt --check
-cargo check -p ggwave-jni
-cargo clippy -p ggwave-jni -- -D warnings
-      ↓
-cargo-ndk 3 ABIs
-      ↓
-AGP 9 + Gradle 9.1
-      ↓
-release AAR
-      ↓
-Maven POM
+Dart payload
+   ↓
+ggwave_rs_flutter
+   ↓ FRB
+Rust native adapter
+   ↓
+ggwave-core
+   ↓
+PCM
+   ↓
+native audio output
 ```
 
-GitHub Actions เพิ่มอีกขั้น:
+Receive เป็นเส้นทางกลับกันจาก native audio input → Rust decoder → FRB stream → Dart transport
+
+## 12. Platform plan
+
+Tier 1 Flutter:
 
 ```text
-compile standalone validation app
-upload AAR artifact
-upload validation APK artifact
+Android
+iOS
+macOS
+Windows
+Linux
 ```
 
-## 11. Validation evidence
+Web เป็น Tier 2 และควรใช้ Web Audio + AudioWorklet + WASM/JS backend แยก เพราะ browser permission/audio lifecycle/sample-rate behavior ต่างจาก CPAL native path
 
-Android/Kotlin build gate ที่ยืนยันแล้ว:
+## 13. Hardware validation ที่ยัง pending
 
-```text
-workflow: Kotlin Android #17
-run id:   33599743730
-status:   success
-```
+Android physical-device acceptance ต้องทดสอบอย่างน้อย:
 
-สิ่งที่ผ่านแล้ว:
-
-- Rust formatting/check/clippy
-- JNI host compile
-- Android JNI cross-compile 3 ABIs
-- release AAR
-- Maven POM
-- standalone consumer validation app compile
-
-คำว่า build validated ไม่เท่ากับ hardware validated
-
-สิ่งที่ยังต้องทำบน physical devices:
-
-- microphone permission behavior
+- microphone runtime permission
 - audible roundtrip
 - ultrasonic 12 kHz roundtrip
 - ultrasonic 15 kHz roundtrip
 - ultrasonic 18 kHz roundtrip
+- two-device TX/RX สลับทิศทาง
 - distance/orientation matrix
-- background/resume lifecycle
-- repeated start/listen/stop cycles
-- release-mode application validation
+- background/resume
+- 10 start/listen/stop cycles
+- release-mode consumer behavior
 
-## 12. Release topology
+รายละเอียดอยู่ใน `docs/ANDROID_VALIDATION.md`
 
-ลำดับที่ตั้งใจ publish:
+## 14. Release topology
 
 ```text
 1. ggwave-core       -> crates.io
@@ -514,11 +499,11 @@ status:   success
 4. ggwave-kotlin     -> Maven repository
 ```
 
-native support crate เช่น `ggwave-jni` ไม่จำเป็นต้องเป็น public user-facing artifact ถ้า Maven build เป็นเจ้าของการ package native libraries
+`ggwave-jni` เป็น support crate สำหรับ Android binding และไม่จำเป็นต้องเป็น user-facing artifact แยก
 
-## 13. สิ่งที่ไม่ควรใส่ใน repository นี้
+## 15. Application boundary
 
-ตัวอย่างของ application-specific logic ที่ควรอยู่ consumer repo:
+สิ่งเหล่านี้ไม่ควรอยู่ใน repo `ggwave`:
 
 ```text
 BINGO:JOIN:<gid>
@@ -530,11 +515,11 @@ pairing token format
 application retry semantics
 ```
 
-`ggwave` ควรรู้เพียง bytes, protocols, tuning และ transport
+`ggwave` ควรรู้เพียง bytes, protocols, tuning, codec และ transport
 
-## 14. Maintenance rule
+## 16. Documentation maintenance rule
 
-ทุกครั้งที่ architecture, public API, supported platform, release gate หรือ validation status เปลี่ยน ให้ sync อย่างน้อย:
+เมื่อ architecture, public API, supported platform, release gate หรือ validation status เปลี่ยน ให้ sync อย่างน้อย:
 
 ```text
 README.md
@@ -544,4 +529,4 @@ docs/ANDROID_VALIDATION.md   # เมื่อเกี่ยวกับ Androi
 RELEASE.md                    # เมื่อกระทบ publish/release
 ```
 
-เป้าหมายคือเอกสารต้องสะท้อน behavior ของ code ปัจจุบัน ไม่ใช่ roadmap เก่า
+เป้าหมายคือเอกสารต้องสะท้อน code และ validation evidence ปัจจุบัน ไม่ใช่ roadmap เก่า
