@@ -29,7 +29,7 @@ Both bindings use the same protocol IDs, payload limits, ultrasonic tuning, and 
 
 The Kotlin Android build uses compileSdk 36, minSdk 23, AGP 9.0.0 and Gradle 9.1+.
 
-Flutter Android CI is pinned to Flutter 3.47.0 and FRB 2.8.0 so compatibility is tested against the declared baseline rather than a floating stable SDK.
+Flutter Android CI is pinned to Flutter 3.47.0 and FRB 2.8.0 so compatibility is tested against the declared baseline rather than a floating stable SDK. FRB 2.8's plugin template is normalized to compileSdk 36 after integration so its generated Android scaffold remains compatible with the Flutter 3.47 AndroidX dependency set.
 
 ## Validation status
 
@@ -47,13 +47,27 @@ Artifacts from run `33600474569`:
 - `ggwave-kotlin-release` — release AAR, SHA-256 `0b34957c62ac752d1856584bf543007b53d59e981bfc4f1e3c5c2721d2c3606f`;
 - `ggwave-kotlin-validation-apk` — debug APK for physical two-device acoustic validation, SHA-256 `6ca205abe5c17150be07e1b59d1c6f23b41b96b9adb45f58728c7750cb737be1`.
 
-This does **not** yet claim acoustic hardware validation. Physical-device audible/ultrasonic roundtrip, permission, lifecycle, distance/orientation, and repeated start/stop acceptance remain tracked in `docs/ANDROID_VALIDATION.md`.
+Flutter/Android is also **build validated** as of 2026-09-02. `Flutter Android #25`, run `33615793479`, passed the complete Flutter 3.47 gate:
 
-Flutter/Android has a dedicated `Flutter Android` CI workflow using Flutter 3.47.0, Dart from that SDK, FRB 2.8.0, Android SDK 36 and NDK 27. Its purpose is to generate the FRB/Cargokit Android scaffold, analyze/test the Dart and Flutter packages, and build an Android example APK. Until that workflow is green, Flutter Android remains implementation-present but build-validation pending.
+- Flutter 3.47.0 / Dart 3.12 baseline setup;
+- FRB codegen 2.8.0 installation from crates.io;
+- monorepo Dart/Flutter dependency resolution;
+- FRB/Cargokit integration and binding generation;
+- Dart format/analyze/test;
+- Flutter format/analyze/test;
+- Android example scaffold generation with compileSdk 36 normalization;
+- debug APK build;
+- artifact upload.
+
+Flutter artifact from run `33615793479`:
+
+- `ggwave-rs-flutter-android-example` — workflow artifact digest `sha256:76c6b2a47dc78e52aa98ecec6a3620cf1e692f746dcee4b8fd4729826240aaa0`.
+
+Neither Android binding is yet **acoustic hardware validated**. Physical-device audible/ultrasonic roundtrip, permission, lifecycle, distance/orientation, and repeated start/stop acceptance remain tracked in `docs/ANDROID_VALIDATION.md`.
 
 ## Native platform targets
 
-Tier 1 Flutter targets are Android, iOS, macOS, Windows, and Linux. Web is planned as a separate Web Audio + WASM/JS backend instead of reusing the native CPAL path. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
+Tier 1 Flutter targets are Android, iOS, macOS, Windows, and Linux. Android is build validated; iOS, macOS, Windows, and Linux remain source implemented with build validation pending. Web is planned as a separate Web Audio + WASM/JS backend instead of reusing the native CPAL path. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
 
 The Kotlin binding targets Android with `arm64-v8a`, `armeabi-v7a`, and `x86_64` Rust libraries.
 
