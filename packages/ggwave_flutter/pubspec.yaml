@@ -1,0 +1,20 @@
+name: ggwave_flutter
+description: Flutter microphone/speaker integration for ggwave with Rust acceleration and mobile ultrasonic tuning.
+version: 1.2.0
+repository: https://github.com/dexter-cnx/ggwave
+homepage: https://github.com/dexter-cnx/ggwave
+issue_tracker: https://github.com/dexter-cnx/ggwave/issues
+topics: [ggwave, audio, ultrasonic, ffi]
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.22.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_rust_bridge: 2.8.0
+  ggwave_dart: ^1.2.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_rust_bridge_codegen: 2.8.0

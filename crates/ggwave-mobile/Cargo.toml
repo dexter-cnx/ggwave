@@ -1,0 +1,23 @@
+[package]
+name = "ggwave-mobile"
+version = "1.2.0"
+edition = "2021"
+rust-version = "1.77"
+description = "Mobile-tuned ggwave helpers with configurable ultrasonic start frequency, pre-emphasis, and packet deduplication."
+license = "MIT"
+repository = "https://github.com/dexter-cnx/ggwave"
+homepage = "https://github.com/dexter-cnx/ggwave"
+documentation = "https://docs.rs/ggwave-mobile"
+readme = "README.md"
+keywords = ["ggwave", "ultrasonic", "audio", "modem", "mobile"]
+categories = ["multimedia::audio", "encoding"]
+include = ["src/**", "examples/**", "Cargo.toml", "README.md", "CHANGELOG.md", "LICENSE"]
+
+[dependencies]
+ggwave-rs = "0.1.1"
+thiserror = "1.0"
+
+[dev-dependencies]
+
+[lints.rust]
+unsafe_code = "allow"

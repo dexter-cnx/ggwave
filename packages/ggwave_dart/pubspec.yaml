@@ -1,0 +1,12 @@
+name: ggwave_dart
+description: Platform-neutral Dart protocol, tuning, packet deduplication, and transport abstractions for ggwave integrations.
+version: 1.2.0
+repository: https://github.com/dexter-cnx/ggwave
+homepage: https://github.com/dexter-cnx/ggwave
+issue_tracker: https://github.com/dexter-cnx/ggwave/issues
+topics: [ggwave, audio, ultrasonic, modem]
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+dev_dependencies:
+  lints: ^4.0.0
+  test: ^1.25.0

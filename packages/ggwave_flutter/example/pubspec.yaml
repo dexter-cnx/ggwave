@@ -1,0 +1,7 @@
+name: ggwave_flutter_example
+publish_to: none
+environment: {sdk: '>=3.3.0 <4.0.0'}
+dependencies:
+  flutter: {sdk: flutter}
+  ggwave_flutter: {path: ..}
+flutter: {uses-material-design: true}
