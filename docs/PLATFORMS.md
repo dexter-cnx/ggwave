@@ -4,7 +4,7 @@
 
 | Platform | ggwave-core | ggwave_dart | ggwave_rs_flutter | ggwave-kotlin | Audio backend | Status |
 |---|---|---|---|---|---|---|
-| Android | Yes | Yes | Yes | Yes | native/CPAL (Flutter), AudioRecord/AudioTrack + JNI codec (Kotlin) | Tier 1; Kotlin build validated, hardware pending; Flutter build validation pending |
+| Android | Yes | Yes | Yes | Yes | native/CPAL (Flutter), AudioRecord/AudioTrack + JNI codec (Kotlin) | Tier 1; Kotlin build validated, hardware pending; Flutter build validated, hardware pending |
 | iOS | Yes | Yes | Yes | N/A | native/CPAL via Rust | Tier 1; source implemented, build validation pending |
 | macOS | Yes | Yes | Yes | N/A | native/CPAL via Rust | Tier 1; source implemented, build validation pending |
 | Windows | Yes | Yes | Yes | N/A | native/CPAL via Rust | Tier 1; source implemented, build validation pending |
@@ -35,6 +35,20 @@ Artifacts from that run:
 
 Physical-device acoustic validation is still pending, so this evidence supports **build validated**, not **hardware validated**.
 
+## Android and Flutter
+
+The Flutter binding uses the same `ggwave-core` through FRB and keeps the Flutter-facing packaging/audio lifecycle in `packages/ggwave_flutter`.
+
+Flutter/Android is build validated by GitHub Actions workflow `Flutter Android #25`, run `33615793479` (2026-09-02). The gate passed Flutter 3.47.0 setup, FRB 2.8.0 codegen installation, monorepo dependency resolution, FRB/Cargokit integration, binding generation, Dart format/analyze/test, Flutter format/analyze/test, Android example scaffold generation, debug APK build, and artifact upload.
+
+FRB 2.8's plugin template initially emits `compileSdk 33`; the repository bootstrap normalizes that generated scaffold to `compileSdk 36` and verifies the old value is gone before continuing. This keeps the generated Android plugin compatible with Flutter 3.47's AndroidX dependencies without changing minSdk or targetSdk policy as a side effect.
+
+Artifact from run `33615793479`:
+
+- `ggwave-rs-flutter-android-example`, workflow artifact digest `sha256:76c6b2a47dc78e52aa98ecec6a3620cf1e692f746dcee4b8fd4729826240aaa0`.
+
+This establishes **Flutter Android build validation only**. Acoustic hardware validation is still pending.
+
 ## Why these five Flutter native platforms
 
 They cover Flutter's mainstream mobile and desktop deployment targets and all have practical microphone/speaker paths. Keeping audio I/O outside `ggwave-core` prevents the codec crate from being coupled to CPAL, Flutter, or Android/JNI.
@@ -49,4 +63,4 @@ A platform is only promoted to fully validated support after encode/decode smoke
 
 For Kotlin/Android, the build portion of that gate additionally requires all declared JNI ABIs to be packaged in the release AAR and an AGP 9 built-in Kotlin build to succeed. That build portion is validated by run `33600474569`; hardware acceptance remains outstanding.
 
-For Flutter platforms, source implementation, CI build validation, and physical acoustic validation are tracked separately. A source target must not be described as build validated until its platform workflow produces the expected application/package artifact successfully.
+For Flutter/Android, the build portion is validated by run `33615793479`; physical acoustic acceptance remains outstanding. For iOS, macOS, Windows, and Linux, source implementation is present but platform build validation is still pending.
