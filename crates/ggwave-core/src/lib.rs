@@ -179,7 +179,10 @@ impl Default for PacketDeduper {
 #[cfg(feature = "dedup")]
 impl PacketDeduper {
     pub fn new(window: Duration) -> Self {
-        Self { window, seen: VecDeque::new() }
+        Self {
+            window,
+            seen: VecDeque::new(),
+        }
     }
 
     pub fn accept(&mut self, payload: &[u8]) -> bool {
