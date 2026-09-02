@@ -56,9 +56,9 @@ jobs:
 
       - name: Resolve Dart and Flutter dependencies
         run: |
-          dart pub get --directory packages/ggwave_dart
-          flutter pub get --directory packages/ggwave_flutter
-          flutter pub get --directory packages/ggwave_flutter/example
+          (cd packages/ggwave_dart && dart pub get)
+          (cd packages/ggwave_flutter && flutter pub get)
+          (cd packages/ggwave_flutter/example && flutter pub get)
 
       - name: Generate FRB and Android native scaffold
         env:
@@ -71,21 +71,25 @@ jobs:
 
       - name: Analyze and test Dart package
         run: |
-          dart format --output=none --set-exit-if-changed packages/ggwave_dart
-          dart analyze packages/ggwave_dart
-          dart test packages/ggwave_dart
+          cd packages/ggwave_dart
+          dart format --output=none --set-exit-if-changed .
+          dart analyze
+          dart test
 
       - name: Analyze and test Flutter package
         run: |
-          dart format --output=none --set-exit-if-changed packages/ggwave_flutter/lib packages/ggwave_flutter/test packages/ggwave_flutter/example/lib
-          flutter analyze packages/ggwave_flutter
-          flutter test packages/ggwave_flutter
+          cd packages/ggwave_flutter
+          dart format --output=none --set-exit-if-changed lib test example/lib
+          flutter analyze
+          flutter test
 
       - name: Build Android example APK
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
-        run: flutter build apk --debug --target packages/ggwave_flutter/example/lib/main.dart --project-dir packages/ggwave_flutter/example
+        run: |
+          cd packages/ggwave_flutter/example
+          flutter build apk --debug
 
       - name: Upload Flutter Android example APK
         uses: actions/upload-artifact@v4
