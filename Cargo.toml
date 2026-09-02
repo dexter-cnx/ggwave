@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/ggwave-core",
+  "packages/ggwave_flutter/rust",
+]
+
+[patch.crates-io]
+ggwave-core = { path = "crates/ggwave-core" }

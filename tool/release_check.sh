@@ -2,8 +2,11 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-echo '== Rust core =='
-(cd "$ROOT/crates/ggwave-core" && cargo fmt --check && cargo test --all-features && cargo clippy --all-targets --all-features -- -D warnings && cargo publish --dry-run)
+echo '== Rust workspace =='
+(cd "$ROOT" && cargo fmt --check --all && cargo test --workspace --all-features && cargo clippy --workspace --all-targets --all-features -- -D warnings)
+
+echo '== Rust core package =='
+(cd "$ROOT/crates/ggwave-core" && cargo publish --dry-run)
 
 echo '== Dart package =='
 (cd "$ROOT/packages/ggwave_dart" && dart pub get && dart format --output=none --set-exit-if-changed . && dart analyze && dart test && dart pub publish --dry-run)
