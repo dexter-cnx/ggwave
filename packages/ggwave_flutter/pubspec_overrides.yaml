@@ -1,0 +1,3 @@
+dependency_overrides:
+  ggwave_dart:
+    path: ../ggwave_dart
