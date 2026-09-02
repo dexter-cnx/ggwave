@@ -22,9 +22,10 @@ done
 echo '== AGP 9 built-in Kotlin AAR =='
 gradle -p "$ROOT/packages/ggwave_kotlin" clean assembleRelease generatePomFileForReleasePublication
 
-test -f "$ROOT/packages/ggwave_kotlin/build/outputs/aar/ggwave_kotlin-release.aar" || {
+AAR_COUNT="$(find "$ROOT/packages/ggwave_kotlin/build/outputs/aar" -maxdepth 1 -name '*-release.aar' -type f | wc -l | tr -d ' ')"
+if [ "$AAR_COUNT" -lt 1 ]; then
   echo 'release AAR was not produced' >&2
   exit 3
-}
+fi
 
 echo 'Kotlin/Android release gate passed.'
