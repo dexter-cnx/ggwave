@@ -10,11 +10,11 @@ if ! command -v flutter_rust_bridge_codegen >/dev/null 2>&1; then
   exit 2
 fi
 
-# FRB 2.x uses Cargokit as its broadly compatible integration backend. This
-# command creates/refreshes the native build scaffold for Flutter targets.
+# FRB 2.8 uses its built-in Cargokit integration path. This package is a
+# shareable Flutter plugin, and its Rust crate already lives at ./rust.
 flutter_rust_bridge_codegen integrate \
-  --integration-backend cargokit \
-  --platforms android,ios,macos,windows,linux
+  --template plugin \
+  --no-enable-integration-test
 
 flutter_rust_bridge_codegen generate
 
