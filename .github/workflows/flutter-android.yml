@@ -70,23 +70,26 @@ jobs:
         run: |
           cd packages/ggwave_flutter
           original_pubspec="$(mktemp)"
+          original_barrel="$(mktemp)"
           cp pubspec.yaml "$original_pubspec"
-          restore_pubspec() {
+          cp lib/ggwave_rs_flutter.dart "$original_barrel"
+          restore_package_files() {
             cp "$original_pubspec" pubspec.yaml
-            rm -f "$original_pubspec"
+            cp "$original_barrel" lib/ggwave_rs_flutter.dart
+            rm -f "$original_pubspec" "$original_barrel"
           }
-          trap restore_pubspec EXIT
+          trap restore_package_files EXIT
           flutter_rust_bridge_codegen integrate --template plugin --no-enable-integration-test
 
-          # FRB 2.8 overlays its default demo/integration-test files even for an
-          # existing custom plugin. They are not part of ggwave_rs_flutter and
-          # reference template-only APIs/dependencies, so remove them before
-          # generating bindings for this package's real Rust API.
+          # FRB 2.8 overlays its default demo/integration-test files and mutates
+          # the package barrel even for an existing custom plugin. They are not
+          # part of ggwave_rs_flutter and reference template-only APIs, so remove
+          # them and restore the package-owned manifest/barrel before generation.
           rm -f rust/src/api/simple.rs
           rm -f lib/src/rust/api/simple.dart
           rm -rf test_driver integration_test
 
-          restore_pubspec
+          restore_package_files
           trap - EXIT
           flutter pub get
           flutter_rust_bridge_codegen generate
