@@ -8,11 +8,28 @@ This package does not depend on Flutter and does not contain application-specifi
 
 - Android minSdk 23
 - compileSdk 36
-- AGP 9+
+- AGP 9.0.0
+- Gradle 9.1+
 - built-in Kotlin enabled (`android.builtInKotlin=true`)
 - arm64-v8a, armeabi-v7a, x86_64 native ABIs
 
 The AGP 9 built-in Kotlin layout is intentionally compatible with the Flutter 3.47 Android toolchain direction. The library itself is usable from a normal native Android/Kotlin project without Flutter.
+
+## Build validation
+
+The Android release gate is validated in GitHub Actions. Workflow run `33598931434` passed on 2026-09-02 and verified:
+
+1. `cargo fmt --check --all`;
+2. host `cargo check -p ggwave-jni`;
+3. `cargo clippy -p ggwave-jni -- -D warnings`;
+4. release JNI cross-compilation for `arm64-v8a`, `armeabi-v7a`, and `x86_64`;
+5. AGP 9 built-in Kotlin release AAR assembly with Gradle 9.1;
+6. Maven POM generation;
+7. upload of the `ggwave-kotlin-release` AAR artifact.
+
+The produced artifact digest for that run is `sha256:4b5a4bdf23c38ec10ebd44897e69226e12da099fbacf7f658877b189573e02db`.
+
+Build validation does not replace physical-device acoustic validation. Audible and ultrasonic roundtrips, permission behavior, lifecycle behavior, and repeated capture cycles still require Android hardware acceptance.
 
 ## High-level Android API
 
@@ -43,6 +60,8 @@ GgWaveAudio.stopListening()
 
 The receive callback executes on the library capture thread. Dispatch to the main thread if the callback updates Android UI.
 
+`MessageListener` is a Kotlin `fun interface`, so the same listener API is friendly to both Kotlin SAM conversion and Java callers.
+
 ## Low-level codec API
 
 Use the lower-level API when your application already owns audio I/O:
@@ -72,6 +91,8 @@ bash ./tool/build_kotlin_android.sh
 This writes `libggwave_jni.so` into the AAR `jniLibs` directories for each supported ABI.
 
 ## Validate the Android artifact
+
+Ensure Gradle 9.1+ and the Android NDK are available, then run:
 
 ```bash
 bash ./tool/release_kotlin_check.sh
