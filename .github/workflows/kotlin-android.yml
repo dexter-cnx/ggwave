@@ -1,0 +1,65 @@
+name: Kotlin Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/ggwave-core/**'
+      - 'crates/ggwave-jni/**'
+      - 'packages/ggwave_kotlin/**'
+      - 'tool/build_kotlin_android.sh'
+      - 'tool/release_kotlin_check.sh'
+      - '.github/workflows/kotlin-android.yml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/ggwave-core/**'
+      - 'crates/ggwave-jni/**'
+      - 'packages/ggwave_kotlin/**'
+      - 'tool/build_kotlin_android.sh'
+      - 'tool/release_kotlin_check.sh'
+      - '.github/workflows/kotlin-android.yml'
+
+jobs:
+  aar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: sdkmanager 'ndk;27.0.12077973'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+          components: rustfmt,clippy
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.0.0'
+
+      - name: Validate Kotlin AAR
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: ./tool/release_kotlin_check.sh
+
+      - name: Upload release AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: ggwave-kotlin-release
+          path: packages/ggwave_kotlin/build/outputs/aar/*-release.aar
+          if-no-files-found: error
