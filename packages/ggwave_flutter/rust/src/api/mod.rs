@@ -19,41 +19,40 @@ static SINK: Lazy<Mutex<Option<StreamSink<Vec<u8>>>>> = Lazy::new(|| Mutex::new(
 static FREQ_BITS: AtomicU32 = AtomicU32::new(12_000.0f32.to_bits());
 static LISTENING: AtomicBool = AtomicBool::new(false);
 
-// ggwave upstream uses global unsynchronised protocol/instance state. Keep all
-// codec operations serialized even though audio device callbacks are concurrent.
+// ggwave upstream uses process-global native state and its Codec is intentionally
+// !Send/!Sync. Serialize every codec operation in this adapter.
 static CODEC_SERIAL: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
-fn current_freq() -> f32 {
-    f32::from_bits(FREQ_BITS.load(Ordering::Relaxed))
-}
-
-fn tuning() -> Tuning {
+fn current_tuning() -> Tuning {
     Tuning {
-        ultrasonic_hz: current_freq(),
-        ultrasonic_pre_emphasis: 1.8,
+        ultrasonic_hz: f32::from_bits(FREQ_BITS.load(Ordering::Relaxed)),
+        ..Tuning::default()
     }
 }
 
 fn codec_for(sample_rate: f32) -> Result<Codec> {
     let _guard = CODEC_SERIAL.lock();
-    Ok(Codec::with_sample_rate(tuning(), sample_rate)?)
+    Ok(Codec::with_sample_rate(current_tuning(), sample_rate)?)
 }
 
 #[frb]
 pub fn init_rust() -> Result<()> {
-    // Force codec creation now so unsupported native/link setups fail early.
+    // Fail early if the native codec cannot be created on this platform.
     let _ = codec_for(48_000.0)?;
     Ok(())
 }
 
 #[frb]
 pub fn set_ultrasonic_freq(freq_start: f32) -> Result<()> {
-    let candidate = Tuning {
+    let tuning = Tuning {
         ultrasonic_hz: freq_start,
-        ultrasonic_pre_emphasis: 1.8,
+        ..Tuning::default()
     };
-    candidate.validate()?;
+    tuning.validate()?;
     FREQ_BITS.store(freq_start.to_bits(), Ordering::Relaxed);
+
+    // Recreate once so the upstream protocol globals are updated immediately.
+    let _ = codec_for(48_000.0)?;
     Ok(())
 }
 
@@ -89,21 +88,19 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
         let channels = config.channels.max(1) as usize;
         let sample_rate = config.sample_rate.0 as f32;
         let codec = match codec_for(sample_rate) {
-            Ok(value) => value,
+            Ok(codec) => codec,
             Err(_) => {
                 LISTENING.store(false, Ordering::SeqCst);
                 return;
             }
         };
 
-        // `Codec` contains upstream GgWave, which is deliberately !Send/!Sync.
-        // The wrapper is safe here because every operation is additionally
-        // serialized through CODEC_SERIAL and ownership stays with this stream.
+        // CPAL callbacks may execute on another native audio thread. The wrapper
+        // is safe here because all accesses are serialized through CODEC_SERIAL.
         struct SerializedCodec(Codec);
         unsafe impl Send for SerializedCodec {}
-
         let codec = Arc::new(Mutex::new(SerializedCodec(codec)));
-        let dedup = Arc::new(Mutex::new(PacketDeduper::default()));
+        let deduper = Arc::new(Mutex::new(PacketDeduper::default()));
 
         let consume = move |mono: Vec<f32>| {
             if !LISTENING.load(Ordering::Relaxed) {
@@ -117,7 +114,7 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
             let Some(payload) = decoded else {
                 return;
             };
-            if payload.is_empty() || !dedup.lock().accept(&payload) {
+            if payload.is_empty() || !deduper.lock().accept(&payload) {
                 return;
             }
             let _ = tx.try_send(payload);

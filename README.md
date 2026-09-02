@@ -1,38 +1,42 @@
 # ggwave
 
-Universal, reusable ggwave packages for Rust, Dart and Flutter. The repository is application-agnostic: it contains no Bingo, QR, game ID, player ID or app-specific packet semantics.
+Universal, publish-oriented ggwave bindings for Rust, Dart, and Flutter.
 
 ## Packages
 
-- `crates/ggwave-core` — platform-neutral Rust codec, protocol/tuning primitives and optional packet deduplication.
-- `packages/ggwave_dart` — pure-Dart public contracts, protocol/tuning types and sequence deduplication.
-- `packages/ggwave_flutter` — Flutter microphone/speaker adapter backed by Rust + Flutter Rust Bridge.
+- `crates/ggwave-core` — platform-neutral Rust codec, protocols, tuning, ultrasonic helpers, and packet deduplication. It owns no microphone/speaker or Flutter APIs.
+- `packages/ggwave_dart` — pure-Dart contracts, protocol/tuning types, and sequence deduplication.
+- `packages/ggwave_flutter` — Flutter adapter backed by Rust/FRB and native audio I/O.
 
-## Architecture
+Application protocols such as Bingo, QR payloads, pairing formats, device IDs, or game state do **not** belong in this repository.
 
-`ggwave-core` owns codec behavior. Platform adapters own audio I/O. Applications only define their own payload bytes.
+## Native platform targets
 
-```text
-application
-    -> ggwave_flutter / another adapter
-        -> ggwave_dart contracts
-        -> ggwave-core codec
-            -> ggwave-rs
+Tier 1 targets are Android, iOS, macOS, Windows, and Linux. Web is planned as a separate Web Audio + WASM/JS backend instead of reusing the native CPAL path. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
+
+Before the first Flutter publish, generate and commit the FRB/Cargokit platform scaffold:
+
+```bash
+./tool/bootstrap_flutter_native.sh
 ```
 
-## Platform targets
+Then run the complete local release gate:
 
-First-class target set: Android, iOS, macOS, Windows and Linux. Pure Dart APIs are usable anywhere Dart runs. Web is a separate planned backend using Web Audio + WASM/JS because browser microphone/speaker access is not the same native `cpal` path.
-
-See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
+```bash
+./tool/release_check.sh
+```
 
 ## Release order
 
-1. Publish `ggwave-core` to crates.io.
-2. Publish `ggwave_dart` to pub.dev.
-3. Generate/validate FRB glue and native builds, then publish `ggwave_flutter` to pub.dev.
+1. `ggwave-core` → crates.io
+2. `ggwave_dart` → pub.dev
+3. `ggwave_flutter` → pub.dev
 
-See [`RELEASE.md`](RELEASE.md) and run `./tool/release_check.sh` before publishing.
+See [`RELEASE.md`](RELEASE.md) for the registry checklist and [`docs/ANDROID_VALIDATION.md`](docs/ANDROID_VALIDATION.md) for the first Tier 1 hardware gate.
+
+## Repository
+
+https://github.com/dexter-cnx/ggwave
 
 ## License
 
