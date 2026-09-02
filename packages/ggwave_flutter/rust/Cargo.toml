@@ -10,8 +10,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 flutter_rust_bridge = "=2.8.0"
-ggwave-mobile = "1.2.0"
-ggwave-rs = "0.1.1"
+ggwave-core = "1.2.0"
 anyhow = "1.0"
 once_cell = "1.19"
 parking_lot = "0.12"

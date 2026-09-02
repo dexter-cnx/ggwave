@@ -1,26 +1,38 @@
 # ggwave
 
-A publish-oriented monorepo for mobile-tuned ggwave bindings across Rust, Dart, and Flutter.
+Universal, reusable ggwave packages for Rust, Dart and Flutter. The repository is application-agnostic: it contains no Bingo, QR, game ID, player ID or app-specific packet semantics.
 
 ## Packages
 
-- `crates/ggwave-mobile` — Rust helpers for crates.io with mobile/ultrasonic tuning, payload limits, pre-emphasis, and duplicate suppression.
-- `packages/ggwave_dart` — pure-Dart public contracts, protocol/tuning types, and sequence deduplication.
-- `packages/ggwave_flutter` — Flutter transport backed by Rust and `flutter_rust_bridge` for microphone/speaker I/O.
+- `crates/ggwave-core` — platform-neutral Rust codec, protocol/tuning primitives and optional packet deduplication.
+- `packages/ggwave_dart` — pure-Dart public contracts, protocol/tuning types and sequence deduplication.
+- `packages/ggwave_flutter` — Flutter microphone/speaker adapter backed by Rust + Flutter Rust Bridge.
 
-The Bingo QR application used to exercise this stack lives separately and is intentionally not part of this package repository.
+## Architecture
+
+`ggwave-core` owns codec behavior. Platform adapters own audio I/O. Applications only define their own payload bytes.
+
+```text
+application
+    -> ggwave_flutter / another adapter
+        -> ggwave_dart contracts
+        -> ggwave-core codec
+            -> ggwave-rs
+```
+
+## Platform targets
+
+First-class target set: Android, iOS, macOS, Windows and Linux. Pure Dart APIs are usable anywhere Dart runs. Web is a separate planned backend using Web Audio + WASM/JS because browser microphone/speaker access is not the same native `cpal` path.
+
+See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
 
 ## Release order
 
-1. Publish `ggwave-mobile` to crates.io.
+1. Publish `ggwave-core` to crates.io.
 2. Publish `ggwave_dart` to pub.dev.
-3. Generate and validate FRB glue, then publish `ggwave_flutter` to pub.dev.
+3. Generate/validate FRB glue and native builds, then publish `ggwave_flutter` to pub.dev.
 
 See [`RELEASE.md`](RELEASE.md) and run `./tool/release_check.sh` before publishing.
-
-## Repository
-
-https://github.com/dexter-cnx/ggwave
 
 ## License
 
