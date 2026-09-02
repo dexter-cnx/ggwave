@@ -60,13 +60,13 @@ jobs:
           (cd packages/ggwave_flutter && flutter pub get)
           (cd packages/ggwave_flutter/example && flutter pub get)
 
-      - name: Generate FRB and Android native scaffold
+      - name: Generate FRB and native scaffold
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: |
           cd packages/ggwave_flutter
-          flutter_rust_bridge_codegen integrate --integration-backend cargokit --platforms android
+          flutter_rust_bridge_codegen integrate --template plugin --no-enable-integration-test
           flutter_rust_bridge_codegen generate
 
       - name: Analyze and test Dart package
