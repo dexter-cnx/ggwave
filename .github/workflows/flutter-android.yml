@@ -77,6 +77,15 @@ jobs:
           }
           trap restore_pubspec EXIT
           flutter_rust_bridge_codegen integrate --template plugin --no-enable-integration-test
+
+          # FRB 2.8 overlays its default demo/integration-test files even for an
+          # existing custom plugin. They are not part of ggwave_rs_flutter and
+          # reference template-only APIs/dependencies, so remove them before
+          # generating bindings for this package's real Rust API.
+          rm -f rust/src/api/simple.rs
+          rm -f lib/src/rust/api/simple.dart
+          rm -rf test_driver integration_test
+
           restore_pubspec
           trap - EXIT
           flutter pub get
@@ -92,7 +101,8 @@ jobs:
       - name: Analyze and test Flutter package
         run: |
           cd packages/ggwave_flutter
-          dart format --output=none --set-exit-if-changed lib test example/lib
+          dart format --output=none --set-exit-if-changed lib test
+          (cd example && dart format --output=none --set-exit-if-changed lib)
           flutter analyze
           flutter test
 
