@@ -6,8 +6,8 @@ homepage: https://github.com/dexter-cnx/ggwave
 issue_tracker: https://github.com/dexter-cnx/ggwave/issues
 topics: [ggwave, audio, ultrasonic, ffi]
 environment:
-  sdk: '>=3.3.0 <4.0.0'
-  flutter: '>=3.22.0'
+  sdk: '>=3.12.0 <4.0.0'
+  flutter: '>=3.47.0'
 dependencies:
   flutter:
     sdk: flutter
