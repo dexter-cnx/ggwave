@@ -22,13 +22,14 @@ object GgWaveAudio {
     fun isListening(): Boolean = listening.get()
 
     /**
-     * Starts microphone capture and forwards complete decoded packets to [onMessage].
+     * Starts microphone capture and forwards complete decoded packets to [listener].
      *
      * The host application must grant `android.permission.RECORD_AUDIO` before
-     * calling this method. [onMessage] executes on the capture thread.
+     * calling this method. The listener executes on the capture thread. Kotlin
+     * callers can pass a lambda; Java callers can use [MessageListener].
      */
     @JvmStatic
-    fun startListening(onMessage: (ByteArray) -> Unit) {
+    fun startListening(listener: MessageListener) {
         if (!listening.compareAndSet(false, true)) return
 
         val minBufferBytes = AudioRecord.getMinBufferSize(
@@ -64,7 +65,7 @@ object GgWaveAudio {
                 while (listening.get()) {
                     val count = recorder.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
                     if (count <= 0) continue
-                    GgWave.decode(buffer.copyOf(count))?.let(onMessage)
+                    GgWave.decode(buffer.copyOf(count))?.let(listener::onMessage)
                 }
             } finally {
                 runCatching {
