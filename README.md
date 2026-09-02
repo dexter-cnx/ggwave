@@ -29,6 +29,8 @@ Both bindings use the same protocol IDs, payload limits, ultrasonic tuning, and 
 
 The Kotlin Android build uses compileSdk 36, minSdk 23, AGP 9.0.0 and Gradle 9.1+.
 
+Flutter Android CI is pinned to Flutter 3.47.0 and FRB 2.8.0 so compatibility is tested against the declared baseline rather than a floating stable SDK.
+
 ## Validation status
 
 Kotlin/Android is **build validated** on GitHub Actions as of 2026-09-02:
@@ -38,14 +40,16 @@ Kotlin/Android is **build validated** on GitHub Actions as of 2026-09-02:
 - AGP 9 built-in Kotlin release AAR builds successfully with Gradle 9.1;
 - Maven POM generation succeeds;
 - standalone validation app compiles successfully against the public AAR-facing API;
-- workflow run `33599743730` passed the complete Android build gate.
+- workflow `Kotlin Android #18`, run `33600474569`, passed the complete Android gate and produced both artifacts.
 
-The workflow publishes two artifacts:
+Artifacts from run `33600474569`:
 
-- `ggwave-kotlin-release` — release AAR;
-- `ggwave-kotlin-validation-apk` — debug APK for physical two-device acoustic validation.
+- `ggwave-kotlin-release` — release AAR, SHA-256 `0b34957c62ac752d1856584bf543007b53d59e981bfc4f1e3c5c2721d2c3606f`;
+- `ggwave-kotlin-validation-apk` — debug APK for physical two-device acoustic validation, SHA-256 `6ca205abe5c17150be07e1b59d1c6f23b41b96b9adb45f58728c7750cb737be1`.
 
 This does **not** yet claim acoustic hardware validation. Physical-device audible/ultrasonic roundtrip, permission, lifecycle, distance/orientation, and repeated start/stop acceptance remain tracked in `docs/ANDROID_VALIDATION.md`.
+
+Flutter/Android has a dedicated `Flutter Android` CI workflow using Flutter 3.47.0, Dart from that SDK, FRB 2.8.0, Android SDK 36 and NDK 27. Its purpose is to generate the FRB/Cargokit Android scaffold, analyze/test the Dart and Flutter packages, and build an Android example APK. Until that workflow is green, Flutter Android remains implementation-present but build-validation pending.
 
 ## Native platform targets
 
@@ -60,6 +64,8 @@ Build locally with:
 ```bash
 gradle -p examples/ggwave_kotlin_validation :app:assembleDebug
 ```
+
+Or download the `ggwave-kotlin-validation-apk` artifact from a successful `Kotlin Android` workflow run.
 
 Install the generated APK on two Android devices, grant microphone permission on the receiving device, start listening, then test Audible and Ultrasonic 12/15/18 kHz in both directions. See [`docs/ANDROID_VALIDATION.md`](docs/ANDROID_VALIDATION.md) for the acceptance matrix.
 
