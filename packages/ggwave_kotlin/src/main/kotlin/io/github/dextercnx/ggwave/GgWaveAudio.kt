@@ -5,6 +5,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
@@ -15,6 +16,10 @@ object GgWaveAudio {
     private val listening = AtomicBoolean(false)
     @Volatile private var captureThread: Thread? = null
     @Volatile private var audioRecord: AudioRecord? = null
+
+    /** Whether microphone capture is currently active. */
+    @JvmStatic
+    fun isListening(): Boolean = listening.get()
 
     /**
      * Starts microphone capture and forwards complete decoded packets to [onMessage].
@@ -86,7 +91,9 @@ object GgWaveAudio {
     /**
      * Plays normalized mono float samples once at 48 kHz.
      *
-     * Playback occurs on a dedicated short-lived background thread.
+     * A static AudioTrack is used because a ggwave packet is a finite waveform.
+     * The playback thread waits for the playback head to consume the full packet
+     * before releasing the track, preventing the waveform tail from being cut off.
      */
     @JvmStatic
     fun play(waveform: FloatArray) {
@@ -102,25 +109,19 @@ object GgWaveAudio {
                 .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
-            val minBufferBytes = AudioTrack.getMinBufferSize(
-                SAMPLE_RATE_HZ,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_FLOAT,
-            )
-            require(minBufferBytes > 0) { "48 kHz PCM_FLOAT playback is not supported" }
-
+            val bufferBytes = waveform.size * Float.SIZE_BYTES
             val track = AudioTrack.Builder()
                 .setAudioAttributes(attributes)
                 .setAudioFormat(format)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .setBufferSizeInBytes(maxOf(minBufferBytes, 4096 * Float.SIZE_BYTES))
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .setBufferSizeInBytes(bufferBytes)
                 .build()
 
             try {
                 check(track.state == AudioTrack.STATE_INITIALIZED) {
                     "Unable to initialize AudioTrack"
                 }
-                track.play()
+
                 var offset = 0
                 while (offset < waveform.size) {
                     val written = track.write(
@@ -129,8 +130,19 @@ object GgWaveAudio {
                         waveform.size - offset,
                         AudioTrack.WRITE_BLOCKING,
                     )
-                    if (written <= 0) break
+                    check(written > 0) { "AudioTrack write failed: $written" }
                     offset += written
+                }
+
+                track.play()
+                val expectedMs = ((waveform.size.toLong() * 1000L) / SAMPLE_RATE_HZ) + 500L
+                val deadline = SystemClock.elapsedRealtime() + expectedMs
+                while (
+                    track.playState == AudioTrack.PLAYSTATE_PLAYING &&
+                    track.playbackHeadPosition.toLong() < waveform.size.toLong() &&
+                    SystemClock.elapsedRealtime() < deadline
+                ) {
+                    SystemClock.sleep(5L)
                 }
             } finally {
                 runCatching { track.stop() }
