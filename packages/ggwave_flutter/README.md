@@ -1,20 +1,48 @@
-# ggwave_flutter
+# ggwave_rs_flutter
 
-Flutter transport for ggwave using Rust + `flutter_rust_bridge` 2.8.0.
+Rust-backed Flutter transport for sending and receiving small data payloads over audible or ultrasonic sound.
 
-Features: encode/decode transport, microphone receive, speaker playback, 12–19 kHz tuning, ultrasonic volume auto-boost, 1.8x pre-emphasis, and 800 ms receive deduplication.
+This package is intentionally application-agnostic. It does not contain Bingo, QR, pairing, device identity, or other application protocols.
 
-## Release prerequisite
+## Architecture
 
-Publish `ggwave-mobile 1.2.0` to crates.io and `ggwave_dart 1.2.0` to pub.dev first. Then regenerate FRB glue on a machine with Flutter + Rust:
+`ggwave_rs_flutter` -> Flutter/Rust bridge -> native audio adapter -> `ggwave-core`
 
-```bash
-flutter pub get
-cargo install flutter_rust_bridge_codegen --version 2.8.0
-flutter_rust_bridge_codegen generate
-flutter analyze
-flutter test
-dart pub publish --dry-run
+The native adapter owns microphone/speaker streaming. `ggwave-core` owns codec, protocol mapping, ultrasonic tuning and packet deduplication.
+
+## Platforms
+
+Planned Tier 1 native targets:
+
+- Android
+- iOS
+- macOS
+- Windows
+- Linux
+
+Web is planned separately using Web Audio plus WASM/JS rather than the CPAL native backend.
+
+## Usage
+
+```dart
+import 'package:ggwave_rs_flutter/ggwave_rs_flutter.dart';
+
+final transport = GgWaveFlutterTransport();
+await transport.initialize();
+await transport.startListening();
+
+transport.messages.listen((payload) {
+  // Application-specific protocol handling lives here.
+});
 ```
 
-The checked-in `lib/src/rust/api.dart` is a deliberately loud placeholder so the source kit remains analyzable before codegen; **do not publish that placeholder**. `tool/release_check.sh` fails if it is still present.
+## Development
+
+Before the first publish, generate and commit the native scaffold and FRB bindings:
+
+```bash
+./tool/bootstrap_flutter_native.sh
+./tool/release_check.sh
+```
+
+The pub.dev name `ggwave_flutter` is already owned by another project, so this implementation publishes as `ggwave_rs_flutter`.

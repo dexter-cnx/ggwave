@@ -1,4 +1,4 @@
-name: ggwave_flutter
+name: ggwave_rs_flutter
 description: Cross-platform Flutter microphone/speaker integration for ggwave with Rust acceleration and ultrasonic tuning.
 version: 1.2.0
 repository: https://github.com/dexter-cnx/ggwave

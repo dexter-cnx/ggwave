@@ -1,5 +1,6 @@
-/// Flutter-native ggwave transport.
+/// Compatibility barrel for source checkouts.
+///
+/// New consumers should import `package:ggwave_rs_flutter/ggwave_rs_flutter.dart`.
 library;
 
-export 'package:ggwave_dart/ggwave_dart.dart';
-export 'src/ggwave_flutter_transport.dart';
+export 'ggwave_rs_flutter.dart';
