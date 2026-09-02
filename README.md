@@ -26,6 +26,20 @@ Both bindings use the same protocol IDs, payload limits, ultrasonic tuning, and 
 
 `ggwave_rs_flutter` now requires Flutter 3.47+ / Dart 3.12+. The Android/Kotlin library is structured for AGP 9 built-in Kotlin (`android.builtInKotlin=true`) and does not apply the legacy `org.jetbrains.kotlin.android` plugin.
 
+The Kotlin Android build uses compileSdk 36, minSdk 23, AGP 9.0.0 and Gradle 9.1+.
+
+## Validation status
+
+Kotlin/Android is **build validated** on GitHub Actions as of 2026-09-02:
+
+- Rust formatting, host `cargo check`, and `clippy -D warnings` pass;
+- JNI cross-compiles for `arm64-v8a`, `armeabi-v7a`, and `x86_64`;
+- AGP 9 built-in Kotlin release AAR builds successfully with Gradle 9.1;
+- Maven POM generation succeeds;
+- release artifact `ggwave-kotlin-release` is produced by workflow run `33598931434`.
+
+This does **not** yet claim acoustic hardware validation. Physical-device audible/ultrasonic roundtrip, permission, lifecycle, and repeated start/stop acceptance remain tracked in `docs/ANDROID_VALIDATION.md`.
+
 ## Native platform targets
 
 Tier 1 Flutter targets are Android, iOS, macOS, Windows, and Linux. Web is planned as a separate Web Audio + WASM/JS backend instead of reusing the native CPAL path. See [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
