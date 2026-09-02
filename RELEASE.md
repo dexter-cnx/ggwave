@@ -64,7 +64,13 @@ Generate the FRB/Cargokit integration before validation:
 ./tool/bootstrap_flutter_native.sh
 ```
 
+The bootstrap preserves the package-owned `pubspec.yaml` and public barrel, removes FRB template-only demo/integration-test files, and normalizes the FRB 2.8 generated Android plugin scaffold to compileSdk 36.
+
 The native Tier 1 targets are Android, iOS, macOS, Windows, and Linux. Each target must complete its own build validation before release support is claimed. Physical microphone/speaker validation is a separate gate.
+
+Android build validation is established by `Flutter Android #25`, run `33615793479` (2026-09-02). The workflow passed FRB/Cargokit generation, Dart and Flutter quality gates, Android example APK build, and artifact upload. The uploaded artifact `ggwave-rs-flutter-android-example` has workflow artifact digest `sha256:76c6b2a47dc78e52aa98ecec6a3620cf1e692f746dcee4b8fd4729826240aaa0`.
+
+This evidence is **build validation only**. Android acoustic hardware validation remains pending and must not be implied by release notes until the physical-device matrix in `docs/ANDROID_VALIDATION.md` passes.
 
 Web is not claimed as native-CPAL support in 1.2.0. It requires a separate Web Audio/AudioWorklet plus WASM/JS backend.
 
