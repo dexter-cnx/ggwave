@@ -4,7 +4,7 @@
 
 | Platform | ggwave-core | ggwave_dart | ggwave_rs_flutter | ggwave-kotlin | Audio backend | Status |
 |---|---|---|---|---|---|---|
-| Android | Yes | Yes | Yes | Yes | native/CPAL (Flutter), Android app audio + JNI codec (Kotlin) | Tier 1 |
+| Android | Yes | Yes | Yes | Yes | native/CPAL (Flutter), AudioRecord/AudioTrack + JNI codec (Kotlin) | Tier 1; Kotlin build validated, hardware pending |
 | iOS | Yes | Yes | Yes | N/A | native/CPAL via Rust | Tier 1 |
 | macOS | Yes | Yes | Yes | N/A | native/CPAL via Rust | Tier 1 |
 | Windows | Yes | Yes | Yes | N/A | native/CPAL via Rust | Tier 1 |
@@ -19,12 +19,14 @@
 The native Kotlin binding is intentionally independent of Flutter:
 
 ```text
-Kotlin/Java -> JNI -> dedicated Rust worker -> ggwave-core
+Kotlin/Java -> AudioRecord/AudioTrack -> JNI -> dedicated Rust worker -> ggwave-core
 ```
 
-Its Android project uses AGP 9 built-in Kotlin (`android.builtInKotlin=true`) and does not apply the legacy Kotlin Gradle plugin. This aligns with Flutter 3.47-era Android projects while remaining usable in ordinary native Android applications.
+Its Android project uses AGP 9.0.0 built-in Kotlin (`android.builtInKotlin=true`) with Gradle 9.1+ and does not apply the legacy Kotlin Gradle plugin. This aligns with Flutter 3.47-era Android projects while remaining usable in ordinary native Android applications.
 
-The first AAR targets `arm64-v8a`, `armeabi-v7a`, and `x86_64`.
+The AAR targets `arm64-v8a`, `armeabi-v7a`, and `x86_64`.
+
+Kotlin/Android is build validated by GitHub Actions workflow run `33598931434` (2026-09-02): all three JNI ABIs compiled, the release AAR assembled, the Maven POM generated, and the release artifact uploaded successfully. Physical-device acoustic validation is still pending.
 
 ## Why these five Flutter native platforms
 
@@ -38,4 +40,4 @@ Web should not emulate the native implementation. A browser adapter should use `
 
 A platform is only promoted to fully validated support after encode/decode smoke tests, microphone capture, speaker playback, audible roundtrip, ultrasonic roundtrip on representative hardware, permissions, lifecycle/resume, and release-mode build all pass.
 
-For Kotlin/Android, the release gate additionally requires all declared JNI ABIs to be packaged in the release AAR and an AGP 9 built-in Kotlin build to succeed.
+For Kotlin/Android, the build portion of that gate additionally requires all declared JNI ABIs to be packaged in the release AAR and an AGP 9 built-in Kotlin build to succeed. That build portion is now validated; hardware acceptance remains outstanding.
