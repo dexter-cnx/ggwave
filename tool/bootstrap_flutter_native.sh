@@ -13,17 +13,19 @@ fi
 # FRB 2.8 uses its built-in Cargokit integration path. This package is a
 # shareable Flutter plugin, and its Rust crate already lives at ./rust.
 #
-# FRB 2.8 currently mutates pubspec.yaml during `integrate` by adding an
-# integration_test SDK dependency even when integration tests are disabled.
-# Preserve the package manifest so scaffold generation cannot change the
-# public dependency graph.
+# FRB 2.8 currently mutates pubspec.yaml and the public package barrel during
+# `integrate`, even when integration tests are disabled. Preserve both files so
+# scaffold generation cannot change the package dependency graph or public API.
 original_pubspec="$(mktemp)"
+original_barrel="$(mktemp)"
 cp pubspec.yaml "$original_pubspec"
-restore_pubspec() {
+cp lib/ggwave_rs_flutter.dart "$original_barrel"
+restore_package_files() {
   cp "$original_pubspec" pubspec.yaml
-  rm -f "$original_pubspec"
+  cp "$original_barrel" lib/ggwave_rs_flutter.dart
+  rm -f "$original_pubspec" "$original_barrel"
 }
-trap restore_pubspec EXIT
+trap restore_package_files EXIT
 
 flutter_rust_bridge_codegen integrate \
   --template plugin \
@@ -36,9 +38,9 @@ rm -f rust/src/api/simple.rs
 rm -f lib/src/rust/api/simple.dart
 rm -rf test_driver integration_test
 
-restore_pubspec
+restore_package_files
 trap - EXIT
 flutter pub get
 flutter_rust_bridge_codegen generate
 
-echo 'Native Flutter scaffold and FRB bindings generated without changing pubspec.yaml or retaining template demo files.'
+echo 'Native Flutter scaffold and FRB bindings generated without changing the package manifest/public barrel or retaining template demo files.'
