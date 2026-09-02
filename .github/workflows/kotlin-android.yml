@@ -71,3 +71,10 @@ jobs:
           name: ggwave-kotlin-release
           path: packages/ggwave_kotlin/build/outputs/aar/*-release.aar
           if-no-files-found: error
+
+      - name: Upload validation APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ggwave-kotlin-validation-apk
+          path: examples/ggwave_kotlin_validation/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
