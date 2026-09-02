@@ -52,11 +52,12 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.0.0'
+          gradle-version: '9.1.0'
 
       - name: Validate Kotlin AAR
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
         run: bash ./tool/release_kotlin_check.sh
 
       - name: Upload release AAR
