@@ -9,7 +9,7 @@ FRB_VERSION := 2.8.0
 TARGET ?= lib/main.dart
 DEVICE ?=
 
-.PHONY: help doctor deps frb-install frb-generate bootstrap prepare-android clean clean-generated analyze test preflight run-android build-android apk-check
+.PHONY: help doctor deps frb-install frb-generate bootstrap prepare-android clean clean-generated analyze test preflight run-android build-android apk-check logs-android
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*## "; printf "Usage: make <target> [DEVICE=<id>] [TARGET=<dart entrypoint>]\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -72,6 +72,11 @@ preflight: bootstrap analyze test ## Reproduce the local/CI generation + analysi
 run-android: prepare-android ## Bootstrap then run Android example; DEVICE=<adb id> is required
 	@if [ -z "$(DEVICE)" ]; then echo "DEVICE is required, e.g. make run-android DEVICE=RF8Y909V0LV"; exit 2; fi
 	cd $(FLUTTER_EXAMPLE) && flutter run -d $(DEVICE) -t $(TARGET)
+
+logs-android: ## Stream filtered Android logs; DEVICE=<adb id> is required
+	@if [ -z "$(DEVICE)" ]; then echo "DEVICE is required, e.g. make logs-android DEVICE=RF8Y909V0LV"; exit 2; fi
+	@command -v adb >/dev/null || { echo "adb not found"; exit 2; }
+	adb -s $(DEVICE) logcat | grep --line-buffered -E 'GGWAVE|ggwave_native|flutter'
 
 build-android: prepare-android ## Bootstrap then build Android debug APK
 	cd $(FLUTTER_EXAMPLE) && flutter build apk --debug -t $(TARGET)
