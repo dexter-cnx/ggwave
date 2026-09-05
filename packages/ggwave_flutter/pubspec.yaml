@@ -13,7 +13,7 @@ dependencies:
     sdk: flutter
   flutter_rust_bridge: 2.8.0
   ggwave_dart: ^1.2.0
-  code_assets: ^2.0.0
+  code_assets: ^1.2.1
   hooks: ^2.1.0
   native_toolchain_rust: ^1.0.6
 dev_dependencies:
