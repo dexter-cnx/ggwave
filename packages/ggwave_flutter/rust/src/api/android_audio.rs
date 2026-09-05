@@ -9,15 +9,17 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use ggwave_core::{Codec, PacketDeduper, Protocol};
 use oboe::{
-    AudioInputCallback, AudioInputStreamSafe, AudioStream, AudioStreamBase, AudioStreamBuilder,
-    AudioStreamSafe, DataCallbackResult, Error as OboeError, InputPreset, Mono, PerformanceMode,
-    SampleRateConversionQuality, SharingMode,
+    AudioInputCallback, AudioInputStreamSafe, AudioOutputCallback, AudioOutputStream, AudioStream,
+    AudioStreamBase, AudioStreamBuilder, AudioStreamSafe, DataCallbackResult, Error as OboeError,
+    InputPreset, Mono, PerformanceMode, SampleRateConversionQuality, SharingMode, Usage,
 };
 
-use super::{current_tuning, CODEC_SERIAL, ENCODE_SAMPLE_RATE, LISTENING, SINK};
+use super::{
+    current_tuning, CODEC_SERIAL, ENCODE_SAMPLE_RATE, LISTENING, PLAYBACK_TAIL_MS, SINK,
+};
 
 const FRAMES_PER_CALLBACK: usize = 1024;
 const AUDIO_QUEUE_DEPTH: usize = 8;
@@ -78,6 +80,44 @@ impl AudioInputCallback for InputCallback {
     ) {
         eprintln!("[GGWAVE_NATIVE][ERROR] Oboe input stream closed: {error:?}");
         LISTENING.store(false, Ordering::SeqCst);
+    }
+}
+
+struct OutputCallback {
+    samples: Vec<f32>,
+    cursor: usize,
+}
+
+impl AudioOutputCallback for OutputCallback {
+    type FrameType = (f32, Mono);
+
+    fn on_audio_ready(
+        &mut self,
+        _audio_stream: &mut dyn AudioOutputStream,
+        audio_data: &mut [f32],
+    ) -> DataCallbackResult {
+        let remaining = self.samples.len().saturating_sub(self.cursor);
+        let count = remaining.min(audio_data.len());
+        if count > 0 {
+            audio_data[..count]
+                .copy_from_slice(&self.samples[self.cursor..self.cursor.saturating_add(count)]);
+            self.cursor += count;
+        }
+        audio_data[count..].fill(0.0);
+
+        if self.cursor >= self.samples.len() {
+            DataCallbackResult::Stop
+        } else {
+            DataCallbackResult::Continue
+        }
+    }
+
+    fn on_error_after_close(
+        &mut self,
+        _audio_stream: &mut dyn AudioOutputStream,
+        error: OboeError,
+    ) {
+        eprintln!("[GGWAVE_NATIVE][ERROR] Oboe output stream closed: {error:?}");
     }
 }
 
@@ -234,5 +274,88 @@ pub(super) fn start_listening(protocol_id: i32) -> Result<()> {
             LISTENING.store(false, Ordering::SeqCst);
             Err(anyhow!("Android Oboe listener startup timeout: {error}"))
         }
+    }
+}
+
+pub(super) fn play_waveform(mut waveform: Vec<f32>) -> Result<()> {
+    if waveform.is_empty() {
+        bail!("waveform is empty");
+    }
+
+    let tail_samples =
+        ((PLAYBACK_TAIL_MS as f32 / 1000.0) * ENCODE_SAMPLE_RATE).round() as usize;
+    let payload_samples = waveform.len();
+    waveform.resize(payload_samples + tail_samples, 0.0);
+    let playback_ms = ((waveform.len() as f64 / ENCODE_SAMPLE_RATE as f64) * 1000.0).ceil() as u64;
+    let (startup_tx, startup_rx) = sync_channel::<Result<String, String>>(1);
+
+    thread::spawn(move || {
+        let callback = OutputCallback {
+            samples: waveform,
+            cursor: 0,
+        };
+        let builder = AudioStreamBuilder::default()
+            .set_output()
+            .set_performance_mode(PerformanceMode::LowLatency)
+            .set_sharing_mode(SharingMode::Exclusive)
+            .set_format::<f32>()
+            .set_channel_count::<Mono>()
+            .set_sample_rate(ENCODE_SAMPLE_RATE as i32)
+            .set_sample_rate_conversion_quality(SampleRateConversionQuality::None)
+            .set_usage(Usage::Media)
+            .set_frames_per_callback(FRAMES_PER_CALLBACK as i32)
+            .set_callback(callback);
+
+        let mut stream = match builder.open_stream() {
+            Ok(stream) => stream,
+            Err(error) => {
+                let message = format!("Oboe open output failed: {error:?}");
+                eprintln!("[GGWAVE_NATIVE][ERROR] {message}");
+                let _ = startup_tx.send(Err(message));
+                return;
+            }
+        };
+
+        let actual_rate = stream.get_sample_rate();
+        let actual_frames = stream.get_frames_per_callback();
+        let actual_api = stream.get_audio_api();
+        if actual_rate != ENCODE_SAMPLE_RATE as i32 {
+            let message = format!(
+                "Oboe output opened at {actual_rate} Hz; expected {} Hz with SRC disabled",
+                ENCODE_SAMPLE_RATE as i32
+            );
+            eprintln!("[GGWAVE_NATIVE][ERROR] {message}");
+            let _ = startup_tx.send(Err(message));
+            return;
+        }
+
+        if let Err(error) = stream.start() {
+            let message = format!("Oboe start output failed: {error:?}");
+            eprintln!("[GGWAVE_NATIVE][ERROR] {message}");
+            let _ = startup_tx.send(Err(message));
+            return;
+        }
+
+        let details = format!(
+            "api={actual_api:?} rate={actual_rate} channels=mono format=f32 frames_per_callback={actual_frames} payload_samples={payload_samples}"
+        );
+        eprintln!("[GGWAVE_NATIVE] Android Oboe output: active {details}");
+        let _ = startup_tx.send(Ok(details));
+
+        thread::sleep(Duration::from_millis(playback_ms + 50));
+        if let Err(error) = stream.stop() {
+            eprintln!("[GGWAVE_NATIVE][WARN] Oboe stop output: {error:?}");
+        }
+        drop(stream);
+        eprintln!("[GGWAVE_NATIVE] Android Oboe output: finished");
+    });
+
+    match startup_rx.recv_timeout(Duration::from_secs(4)) {
+        Ok(Ok(details)) => {
+            eprintln!("[GGWAVE_NATIVE] Android Oboe output: confirmed {details}");
+            Ok(())
+        }
+        Ok(Err(message)) => Err(anyhow!(message)),
+        Err(error) => Err(anyhow!("Android Oboe output startup timeout: {error}")),
     }
 }
