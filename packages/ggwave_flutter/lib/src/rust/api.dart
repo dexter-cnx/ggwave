@@ -6,7 +6,11 @@
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `codec_for`, `current_tuning`
+// These functions are ignored because they are not marked as `pub`: `codec_for`, `current_tuning`, `resample_linear`
+
+double get encodeSampleRate => RustLib.instance.api.crateApiEncodeSampleRate();
+
+BigInt get playbackTailMs => RustLib.instance.api.crateApiPlaybackTailMs();
 
 Future<void> initRust() => RustLib.instance.api.crateApiInitRust();
 
