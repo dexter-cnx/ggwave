@@ -134,7 +134,9 @@ pub fn set_ultrasonic_freq(freq_start: f32) -> Result<()> {
 pub fn encode(data: Vec<u8>, protocol_id: i32, volume: i32) -> Result<Vec<f32>> {
     eprintln!(
         "[GGWAVE_NATIVE] encode: bytes={} protocol_id={} volume={}",
-        data.len(), protocol_id, volume
+        data.len(),
+        protocol_id,
+        volume
     );
     let codec = codec_for(ENCODE_SAMPLE_RATE).map_err(|error| {
         eprintln!("[GGWAVE_NATIVE][ERROR] encode codec init: {error:#}");
@@ -324,7 +326,9 @@ fn start_listening_cpal(protocol_id: i32) -> Result<()> {
         Ok(Err(message)) => return Err(anyhow!(message)),
         Err(error) => {
             LISTENING.store(false, Ordering::SeqCst);
-            return Err(anyhow!("listener startup did not complete within 3s: {error}"));
+            return Err(anyhow!(
+                "listener startup did not complete within 3s: {error}"
+            ));
         }
     }
 
@@ -385,8 +389,8 @@ pub fn play_waveform(waveform: Vec<f32>) -> Result<()> {
     let channels = config.channels.max(1) as usize;
     let output_rate = config.sample_rate.0 as f32;
     let waveform = resample_linear(&waveform, ENCODE_SAMPLE_RATE, output_rate);
-    let playback_ms = ((waveform.len() as f64 / output_rate as f64) * 1000.0).ceil() as u64
-        + PLAYBACK_TAIL_MS;
+    let playback_ms =
+        ((waveform.len() as f64 / output_rate as f64) * 1000.0).ceil() as u64 + PLAYBACK_TAIL_MS;
     eprintln!(
         "[GGWAVE_NATIVE] output config: rate={} channels={} format={:?} samples={} playback_ms={}",
         config.sample_rate.0,
