@@ -17,6 +17,9 @@ use tokio::sync::mpsc;
 
 use crate::frb_generated::StreamSink;
 
+#[cfg(target_os = "android")]
+mod android_audio;
+
 pub(crate) const ENCODE_SAMPLE_RATE: f32 = 48_000.0;
 pub(crate) const PLAYBACK_TAIL_MS: u64 = 300;
 
@@ -25,7 +28,7 @@ static FREQ_BITS: AtomicU32 = AtomicU32::new(12_000.0f32.to_bits());
 static LISTENING: AtomicBool = AtomicBool::new(false);
 
 // ggwave upstream uses process-global native state and its Codec is intentionally
-// !Send/!Sync. Serialize every codec operation in this adapter.
+// !Send/!Sync. Serialize codec operations that may touch that global state.
 static CODEC_SERIAL: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 fn current_tuning() -> Tuning {
@@ -63,12 +66,14 @@ fn resample_linear(samples: &[f32], source_rate: f32, target_rate: f32) -> Vec<f
     out
 }
 
+#[cfg(not(target_os = "android"))]
 fn downmix_f32(data: &[f32], channels: usize) -> Vec<f32> {
     data.chunks(channels)
         .map(|frame| frame.iter().copied().sum::<f32>() / frame.len() as f32)
         .collect()
 }
 
+#[cfg(not(target_os = "android"))]
 fn downmix_i16(data: &[i16], channels: usize) -> Vec<f32> {
     data.chunks(channels)
         .map(|frame| {
@@ -81,6 +86,7 @@ fn downmix_i16(data: &[i16], channels: usize) -> Vec<f32> {
         .collect()
 }
 
+#[cfg(not(target_os = "android"))]
 fn downmix_u16(data: &[u16], channels: usize) -> Vec<f32> {
     data.chunks(channels)
         .map(|frame| {
@@ -148,7 +154,20 @@ pub fn encode(data: Vec<u8>, protocol_id: i32, volume: i32) -> Result<Vec<f32>> 
 
 #[frb]
 pub fn start_listening(protocol_id: i32) -> Result<()> {
-    eprintln!("[GGWAVE_NATIVE] start_listening: requested protocol_id={protocol_id}");
+    #[cfg(target_os = "android")]
+    {
+        return android_audio::start_listening(protocol_id);
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        start_listening_cpal(protocol_id)
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn start_listening_cpal(protocol_id: i32) -> Result<()> {
+    eprintln!("[GGWAVE_NATIVE] CPAL listen: requested protocol_id={protocol_id}");
     stop_listening()?;
     LISTENING.store(true, Ordering::SeqCst);
 
@@ -179,13 +198,14 @@ pub fn start_listening(protocol_id: i32) -> Result<()> {
         let channels = config.channels.max(1) as usize;
         let sample_rate = config.sample_rate.0 as f32;
         eprintln!(
-            "[GGWAVE_NATIVE] listen config: device={} rate={} channels={} format={:?} downmix=average operating_rate={}",
+            "[GGWAVE_NATIVE] CPAL listen config: device={} rate={} channels={} format={:?} operating_rate={}",
             device_name,
             sample_rate,
             channels,
             supported.sample_format(),
             ENCODE_SAMPLE_RATE
         );
+
         let codec = match codec_for(sample_rate) {
             Ok(codec) => codec,
             Err(error) => {
@@ -212,7 +232,7 @@ pub fn start_listening(protocol_id: i32) -> Result<()> {
                     .iter()
                     .fold(0.0f32, |acc, sample| acc.max(sample.abs()));
                 eprintln!(
-                    "[GGWAVE_NATIVE] input activity: callback={} samples={} peak={:.4}",
+                    "[GGWAVE_NATIVE] CPAL input activity: callback={} samples={} peak={:.4}",
                     callback_index,
                     mono.len(),
                     peak
@@ -248,25 +268,19 @@ pub fn start_listening(protocol_id: i32) -> Result<()> {
         let stream_result = match supported.sample_format() {
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &config,
-                move |data: &[f32], _| {
-                    consume(downmix_f32(data, channels));
-                },
+                move |data: &[f32], _| consume(downmix_f32(data, channels)),
                 err_fn,
                 None,
             ),
             cpal::SampleFormat::I16 => device.build_input_stream(
                 &config,
-                move |data: &[i16], _| {
-                    consume(downmix_i16(data, channels));
-                },
+                move |data: &[i16], _| consume(downmix_i16(data, channels)),
                 err_fn,
                 None,
             ),
             cpal::SampleFormat::U16 => device.build_input_stream(
                 &config,
-                move |data: &[u16], _| {
-                    consume(downmix_u16(data, channels));
-                },
+                move |data: &[u16], _| consume(downmix_u16(data, channels)),
                 err_fn,
                 None,
             ),
@@ -288,27 +302,25 @@ pub fn start_listening(protocol_id: i32) -> Result<()> {
             return;
         }
 
-        let startup_message = format!(
+        let details = format!(
             "device={} rate={} channels={} format={:?}",
             device_name,
             config.sample_rate.0,
             channels,
             supported.sample_format()
         );
-        let _ = startup_tx.send(Ok(startup_message.clone()));
-        eprintln!("[GGWAVE_NATIVE] listening: active {startup_message}");
+        let _ = startup_tx.send(Ok(details.clone()));
+        eprintln!("[GGWAVE_NATIVE] CPAL listening: active {details}");
 
         while LISTENING.load(Ordering::Relaxed) {
             thread::sleep(Duration::from_millis(50));
         }
         drop(stream);
-        eprintln!("[GGWAVE_NATIVE] listening: stopped");
+        eprintln!("[GGWAVE_NATIVE] CPAL listening: stopped");
     });
 
     match startup_rx.recv_timeout(Duration::from_secs(3)) {
-        Ok(Ok(details)) => {
-            eprintln!("[GGWAVE_NATIVE] start_listening: confirmed {details}");
-        }
+        Ok(Ok(details)) => eprintln!("[GGWAVE_NATIVE] CPAL listen: confirmed {details}"),
         Ok(Err(message)) => return Err(anyhow!(message)),
         Err(error) => {
             LISTENING.store(false, Ordering::SeqCst);
@@ -441,9 +453,7 @@ pub fn play_waveform(waveform: Vec<f32>) -> Result<()> {
                 eprintln!("[GGWAVE_NATIVE] output stream: playing for {playback_ms} ms");
                 thread::sleep(Duration::from_millis(playback_ms));
             }
-            Err(error) => {
-                eprintln!("[GGWAVE_NATIVE][ERROR] output stream play: {error}");
-            }
+            Err(error) => eprintln!("[GGWAVE_NATIVE][ERROR] output stream play: {error}"),
         }
         drop(stream);
         eprintln!("[GGWAVE_NATIVE] output stream: finished");
