@@ -11,7 +11,10 @@ pub fn init_app() {
 mod android_context {
     use std::{ffi::c_void, sync::OnceLock};
 
-    use jni::{objects::{GlobalRef, JObject}, JNIEnv};
+    use jni::{
+        objects::{GlobalRef, JObject},
+        JNIEnv,
+    };
 
     static ANDROID_CONTEXT_REF: OnceLock<GlobalRef> = OnceLock::new();
 
