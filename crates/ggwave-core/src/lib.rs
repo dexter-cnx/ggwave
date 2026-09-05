@@ -9,7 +9,9 @@ use std::collections::VecDeque;
 #[cfg(feature = "dedup")]
 use std::time::{Duration, Instant};
 
-use ggwave_rs::{default_parameters, ffi, GgWave, ProtocolId, SampleFormat};
+use ggwave_rs::{
+    default_parameters, ffi, set_rx_protocol_enabled, GgWave, ProtocolId, SampleFormat,
+};
 use thiserror::Error;
 
 /// Maximum payload accepted by the wrapper.
@@ -71,6 +73,28 @@ impl Protocol {
     }
 }
 
+const ALL_NATIVE_PROTOCOLS: [ProtocolId; 12] = [
+    ProtocolId::GGWAVE_PROTOCOL_AUDIBLE_NORMAL,
+    ProtocolId::GGWAVE_PROTOCOL_AUDIBLE_FAST,
+    ProtocolId::GGWAVE_PROTOCOL_AUDIBLE_FASTEST,
+    ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_NORMAL,
+    ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_FAST,
+    ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_FASTEST,
+    ProtocolId::GGWAVE_PROTOCOL_DT_NORMAL,
+    ProtocolId::GGWAVE_PROTOCOL_DT_FAST,
+    ProtocolId::GGWAVE_PROTOCOL_DT_FASTEST,
+    ProtocolId::GGWAVE_PROTOCOL_MT_NORMAL,
+    ProtocolId::GGWAVE_PROTOCOL_MT_FAST,
+    ProtocolId::GGWAVE_PROTOCOL_MT_FASTEST,
+];
+
+fn filter_rx_protocol(protocol: Protocol) {
+    let selected = protocol.native();
+    for candidate in ALL_NATIVE_PROTOCOLS {
+        set_rx_protocol_enabled(candidate, candidate == selected);
+    }
+}
+
 /// Codec tuning independent of any audio-device implementation.
 #[derive(Debug, Clone, Copy)]
 pub struct Tuning {
@@ -103,8 +127,6 @@ impl Tuning {
 
         // ggwave_rx/txProtocolSetFreqStart() takes an FFT-bin index, NOT Hz.
         // At 48 kHz / 1024 samples one bin is 46.875 Hz, so 12 kHz is bin 256.
-        // Passing 12000 directly here puts the carrier thousands of bins beyond
-        // Nyquist and makes the ultrasonic protocol impossible to decode.
         let bin_hz = DEFAULT_OPERATING_SAMPLE_RATE / DEFAULT_SAMPLES_PER_FRAME;
         let bin = (self.ultrasonic_hz / bin_hz).round() as i32;
         let nyquist_bin = (DEFAULT_SAMPLES_PER_FRAME as i32) / 2;
@@ -144,19 +166,40 @@ impl Codec {
 
     /// Creates a codec for a device whose capture/playback rate is
     /// [sample_rate], while keeping ggwave's internal operating rate at 48 kHz.
-    ///
-    /// This distinction is important on Android where devices commonly expose
-    /// 44.1 kHz input. ggwave performs the required resampling internally when
-    /// `sampleRateInp`/`sampleRateOut` differ from `sampleRate`.
     pub fn with_sample_rate(tuning: Tuning, sample_rate: f32) -> Result<Self, GgWaveError> {
+        Self::build(tuning, sample_rate, None)
+    }
+
+    /// Creates an RX codec that listens only for [protocol].
+    ///
+    /// Upstream protocol enablement is process-global and is consumed when a new
+    /// ggwave instance is created. Filtering before construction prevents other
+    /// protocol families from misattributing the same spectral window.
+    pub fn with_sample_rate_and_rx_protocol(
+        tuning: Tuning,
+        sample_rate: f32,
+        protocol: Protocol,
+    ) -> Result<Self, GgWaveError> {
+        Self::build(tuning, sample_rate, Some(protocol))
+    }
+
+    fn build(
+        tuning: Tuning,
+        sample_rate: f32,
+        rx_protocol: Option<Protocol>,
+    ) -> Result<Self, GgWaveError> {
         if sample_rate <= 0.0 {
             return Err(GgWaveError::InvalidSampleRate);
         }
         tuning.apply()?;
+        if let Some(protocol) = rx_protocol {
+            filter_rx_protocol(protocol);
+        }
         let mut p = default_parameters();
         p.sampleRateInp = sample_rate;
         p.sampleRateOut = sample_rate;
         p.sampleRate = DEFAULT_OPERATING_SAMPLE_RATE;
+        p.samplesPerFrame = DEFAULT_SAMPLES_PER_FRAME as i32;
         p.sampleFormatInp = SampleFormat::GGWAVE_SAMPLE_FORMAT_F32;
         p.sampleFormatOut = SampleFormat::GGWAVE_SAMPLE_FORMAT_F32;
         let inner = GgWave::new(p).map_err(|e| GgWaveError::Codec(e.to_string()))?;
@@ -249,6 +292,27 @@ fn f32_to_bytes(samples: &[f32]) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    fn assert_roundtrip(protocol: Protocol, tuning: Tuning) {
+        let payload = b"hello";
+        let tx = Codec::new(tuning).unwrap();
+        let waveform = tx.encode(payload, protocol, 60).unwrap();
+        let rx = Codec::with_sample_rate_and_rx_protocol(
+            tuning,
+            DEFAULT_OPERATING_SAMPLE_RATE,
+            protocol,
+        )
+        .unwrap();
+
+        let mut decoded = None;
+        for chunk in waveform.chunks(DEFAULT_SAMPLES_PER_FRAME as usize) {
+            if let Some(value) = rx.decode(chunk).unwrap() {
+                decoded = Some(value);
+                break;
+            }
+        }
+        assert_eq!(decoded.as_deref(), Some(payload.as_slice()));
+    }
+
     #[test]
     fn audible_encode_smoke() {
         let codec = Codec::new(Tuning::default()).unwrap();
@@ -264,10 +328,21 @@ mod tests {
     }
 
     #[test]
-    fn ultrasonic_12khz_maps_to_bin_256() {
+    fn audible_filtered_roundtrip() {
+        assert_roundtrip(Protocol::AudibleFast, Tuning::default());
+    }
+
+    #[test]
+    fn ultrasonic_12khz_filtered_roundtrip() {
+        assert_roundtrip(Protocol::UltrasonicFast, Tuning::default());
+    }
+
+    #[test]
+    fn validated_ultrasonic_profiles_map_to_expected_bins() {
         let bin_hz = DEFAULT_OPERATING_SAMPLE_RATE / DEFAULT_SAMPLES_PER_FRAME;
-        let bin = (12_000.0 / bin_hz).round() as i32;
-        assert_eq!(bin, 256);
+        for (hz, expected) in [(12_000.0, 256), (15_000.0, 320), (18_000.0, 384)] {
+            assert_eq!((hz / bin_hz).round() as i32, expected);
+        }
     }
 
     #[test]
