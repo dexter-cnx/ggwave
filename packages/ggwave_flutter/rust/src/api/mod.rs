@@ -17,8 +17,8 @@ use tokio::sync::mpsc;
 
 use crate::frb_generated::StreamSink;
 
-const ENCODE_SAMPLE_RATE: f32 = 48_000.0;
-const PLAYBACK_TAIL_MS: u64 = 300;
+pub(crate) const ENCODE_SAMPLE_RATE: f32 = 48_000.0;
+pub(crate) const PLAYBACK_TAIL_MS: u64 = 300;
 
 static SINK: Lazy<Mutex<Option<StreamSink<Vec<u8>>>>> = Lazy::new(|| Mutex::new(None));
 static FREQ_BITS: AtomicU32 = AtomicU32::new(12_000.0f32.to_bits());
