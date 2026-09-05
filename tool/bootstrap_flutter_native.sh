@@ -59,6 +59,19 @@ if [ -f android/build.gradle.kts ]; then
   rm -f android/build.gradle.kts.bak
 fi
 
+# CPAL's Android backend reads ndk-context. Because the Rust library is loaded
+# from Dart FFI/native assets instead of an Android Activity runtime, install a
+# tiny FlutterPlugin bootstrap that passes applicationContext to Rust before
+# any CPAL call is made.
+android_plugin_src="$ROOT/tool/android/GgwaveRsFlutterPlugin.kt"
+android_plugin_dst='android/src/main/kotlin/com/dextercnx/ggwave/GgwaveRsFlutterPlugin.kt'
+if [ ! -f "$android_plugin_src" ]; then
+  echo "Missing Android context bootstrap template: $android_plugin_src" >&2
+  exit 1
+fi
+mkdir -p "$(dirname "$android_plugin_dst")"
+cp "$android_plugin_src" "$android_plugin_dst"
+
 # AGP no longer allows Android library namespace to be declared with the
 # manifest package attribute. The generated plugin build.gradle(.kts) owns the
 # namespace, so strip only this legacy attribute from the generated manifest.
@@ -88,6 +101,10 @@ if [ -f "$manifest" ] && grep -q -E '<manifest[^>]+package=' "$manifest"; then
   echo 'FRB Android library manifest still contains a legacy package attribute.' >&2
   exit 1
 fi
+if [ ! -f "$android_plugin_dst" ]; then
+  echo 'Android native-context Flutter plugin was not installed.' >&2
+  exit 1
+fi
 
 rm -f rust/src/api/simple.rs
 rm -f lib/src/rust/api/simple.dart
@@ -98,4 +115,4 @@ trap - EXIT
 flutter pub get
 flutter_rust_bridge_codegen generate
 
-echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36, JVM 17, and an AGP-compatible library manifest, without changing the package manifest/public barrel or retaining template demo files.'
+echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36, JVM 17, AGP-compatible manifest, and CPAL Android context bootstrap.'
