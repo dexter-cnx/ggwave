@@ -14,12 +14,17 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 2
 fi
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo 'python3 is required to patch the generated Android manifest.' >&2
+  exit 2
+fi
+
 if ! command -v flutter_rust_bridge_codegen >/dev/null 2>&1; then
   echo 'Installing flutter_rust_bridge_codegen 2.8.0...'
   cargo install flutter_rust_bridge_codegen --version 2.8.0 --locked
 fi
 
-"$ROOT/tool/bootstrap_flutter_native.sh"
+bash "$ROOT/tool/bootstrap_flutter_native.sh"
 
 cd "$EXAMPLE"
 if [ ! -d android ]; then
