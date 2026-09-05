@@ -5,31 +5,41 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DART_PKG="$ROOT/packages/ggwave_dart"
 PKG="$ROOT/packages/ggwave_flutter"
 EXAMPLE="$PKG/example"
+FRB_VERSION="2.8.0"
 
 if ! command -v flutter >/dev/null 2>&1; then
   echo 'Flutter is required and must be available on PATH.' >&2
   exit 2
 fi
-
 if ! command -v dart >/dev/null 2>&1; then
   echo 'Dart is required and must be available on PATH.' >&2
   exit 2
 fi
-
 if ! command -v cargo >/dev/null 2>&1; then
   echo 'Rust/Cargo is required and must be available on PATH.' >&2
   exit 2
 fi
-
 if ! command -v python3 >/dev/null 2>&1; then
   echo 'python3 is required to patch the generated Android manifest.' >&2
   exit 2
 fi
 
+install_frb_codegen() {
+  echo "Installing flutter_rust_bridge_codegen $FRB_VERSION..."
+  cargo install flutter_rust_bridge_codegen --version "$FRB_VERSION" --locked --force
+}
+
 if ! command -v flutter_rust_bridge_codegen >/dev/null 2>&1; then
-  echo 'Installing flutter_rust_bridge_codegen 2.8.0...'
-  cargo install flutter_rust_bridge_codegen --version 2.8.0 --locked
+  install_frb_codegen
+else
+  installed_frb="$(flutter_rust_bridge_codegen --version 2>/dev/null || true)"
+  if [[ "$installed_frb" != *"$FRB_VERSION"* ]]; then
+    echo "Found incompatible FRB codegen: ${installed_frb:-unknown}. Expected $FRB_VERSION."
+    install_frb_codegen
+  fi
 fi
+
+echo "Using $(flutter_rust_bridge_codegen --version)"
 
 ensure_plugin_android_scaffold() {
   if [ -d "$PKG/android" ]; then
@@ -57,19 +67,11 @@ ensure_plugin_android_scaffold() {
   rm -rf "$tmp"
 }
 
-# Resolve the pure-Dart package independently so VSCode's analyzer has a valid
-# package_config.json for its example/tests, not just for Flutter consumers.
 echo 'Resolving ggwave_dart dependencies...'
 (cd "$DART_PKG" && dart pub get)
 
-# The example depends on ggwave_rs_flutter as a local plugin. Native platform
-# scaffolds are intentionally generated locally rather than committed.
 ensure_plugin_android_scaffold
-
 bash "$ROOT/tool/bootstrap_flutter_native.sh"
-
-# FRB integration is allowed to regenerate platform state. Re-check after the
-# bootstrap instead of assuming the pre-bootstrap scaffold survived unchanged.
 ensure_plugin_android_scaffold
 
 if [ ! -f "$PKG/android/build.gradle" ] && [ ! -f "$PKG/android/build.gradle.kts" ]; then
@@ -77,8 +79,6 @@ if [ ! -f "$PKG/android/build.gradle" ] && [ ! -f "$PKG/android/build.gradle.kts
   exit 1
 fi
 
-# Refresh Flutter package resolution after FRB generation for both command-line
-# builds and VSCode's analysis server.
 echo 'Resolving ggwave_rs_flutter dependencies...'
 (cd "$PKG" && flutter pub get)
 
