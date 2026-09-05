@@ -39,38 +39,60 @@ fn codec_for(sample_rate: f32) -> Result<Codec> {
 
 #[frb]
 pub fn init_rust() -> Result<()> {
-    // Fail early if the native codec cannot be created on this platform.
-    let _ = codec_for(48_000.0)?;
+    eprintln!("[GGWAVE_NATIVE] init_rust: start");
+    let _ = codec_for(48_000.0).map_err(|error| {
+        eprintln!("[GGWAVE_NATIVE][ERROR] init_rust: {error:#}");
+        error
+    })?;
+    eprintln!("[GGWAVE_NATIVE] init_rust: success");
     Ok(())
 }
 
 #[frb]
 pub fn set_ultrasonic_freq(freq_start: f32) -> Result<()> {
+    eprintln!("[GGWAVE_NATIVE] set_ultrasonic_freq: {freq_start} Hz");
     let tuning = Tuning {
         ultrasonic_hz: freq_start,
         ..Tuning::default()
     };
-    tuning.validate()?;
+    tuning.validate().map_err(|error| {
+        eprintln!("[GGWAVE_NATIVE][ERROR] tuning validation: {error:#}");
+        error
+    })?;
     FREQ_BITS.store(freq_start.to_bits(), Ordering::Relaxed);
 
-    // Recreate once so the upstream protocol globals are updated immediately.
-    let _ = codec_for(48_000.0)?;
+    let _ = codec_for(48_000.0).map_err(|error| {
+        eprintln!("[GGWAVE_NATIVE][ERROR] tuning codec recreate: {error:#}");
+        error
+    })?;
     Ok(())
 }
 
 #[frb]
 pub fn encode(data: Vec<u8>, protocol_id: i32, volume: i32) -> Result<Vec<f32>> {
-    let codec = codec_for(48_000.0)?;
+    eprintln!(
+        "[GGWAVE_NATIVE] encode: bytes={} protocol_id={} volume={}",
+        data.len(), protocol_id, volume
+    );
+    let codec = codec_for(48_000.0).map_err(|error| {
+        eprintln!("[GGWAVE_NATIVE][ERROR] encode codec init: {error:#}");
+        error
+    })?;
     let protocol = Protocol::from_app_id(protocol_id);
     let waveform = {
         let _guard = CODEC_SERIAL.lock();
-        codec.encode(&data, protocol, volume)?
+        codec.encode(&data, protocol, volume).map_err(|error| {
+            eprintln!("[GGWAVE_NATIVE][ERROR] encode: {error:#}");
+            error
+        })?
     };
+    eprintln!("[GGWAVE_NATIVE] encode: samples={}", waveform.len());
     Ok(waveform)
 }
 
 #[frb]
 pub fn start_listening(_protocol_id: i32) -> Result<()> {
+    eprintln!("[GGWAVE_NATIVE] start_listening: requested");
     stop_listening()?;
     LISTENING.store(true, Ordering::SeqCst);
 
@@ -79,26 +101,36 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
     thread::spawn(move || {
         let host = cpal::default_host();
         let Some(device) = host.default_input_device() else {
+            eprintln!("[GGWAVE_NATIVE][ERROR] listen: no default input device");
             LISTENING.store(false, Ordering::SeqCst);
             return;
         };
-        let Ok(supported) = device.default_input_config() else {
-            LISTENING.store(false, Ordering::SeqCst);
-            return;
+        let supported = match device.default_input_config() {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("[GGWAVE_NATIVE][ERROR] listen default_input_config: {error}");
+                LISTENING.store(false, Ordering::SeqCst);
+                return;
+            }
         };
         let config: cpal::StreamConfig = supported.clone().into();
         let channels = config.channels.max(1) as usize;
         let sample_rate = config.sample_rate.0 as f32;
+        eprintln!(
+            "[GGWAVE_NATIVE] listen config: rate={} channels={} format={:?}",
+            sample_rate,
+            channels,
+            supported.sample_format()
+        );
         let codec = match codec_for(sample_rate) {
             Ok(codec) => codec,
-            Err(_) => {
+            Err(error) => {
+                eprintln!("[GGWAVE_NATIVE][ERROR] listen codec init: {error:#}");
                 LISTENING.store(false, Ordering::SeqCst);
                 return;
             }
         };
 
-        // CPAL callbacks may execute on another native audio thread. The wrapper
-        // is safe here because all accesses are serialized through CODEC_SERIAL.
         struct SerializedCodec(Codec);
         unsafe impl Send for SerializedCodec {}
         let codec = Arc::new(Mutex::new(SerializedCodec(codec)));
@@ -111,7 +143,13 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
             let decoded = {
                 let _serial = CODEC_SERIAL.lock();
                 let guard = codec.lock();
-                guard.0.decode(&mono).ok().flatten()
+                match guard.0.decode(&mono) {
+                    Ok(decoded) => decoded,
+                    Err(error) => {
+                        eprintln!("[GGWAVE_NATIVE][ERROR] decode: {error:#}");
+                        None
+                    }
+                }
             };
             let Some(payload) = decoded else {
                 return;
@@ -119,10 +157,15 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
             if payload.is_empty() || !deduper.lock().accept(&payload) {
                 return;
             }
-            let _ = tx.try_send(payload);
+            eprintln!("[GGWAVE_NATIVE] decoded payload bytes={}", payload.len());
+            if let Err(error) = tx.try_send(payload) {
+                eprintln!("[GGWAVE_NATIVE][ERROR] rx queue send: {error}");
+            }
         };
 
-        let err_fn = |_err| {};
+        let err_fn = |error| {
+            eprintln!("[GGWAVE_NATIVE][ERROR] input stream callback: {error}");
+        };
         let stream_result = match supported.sample_format() {
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &config,
@@ -157,37 +200,53 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
                 err_fn,
                 None,
             ),
-            _ => {
+            other => {
+                eprintln!("[GGWAVE_NATIVE][ERROR] unsupported input sample format: {other:?}");
                 LISTENING.store(false, Ordering::SeqCst);
                 return;
             }
         };
 
-        let Ok(stream) = stream_result else {
-            LISTENING.store(false, Ordering::SeqCst);
-            return;
+        let stream = match stream_result {
+            Ok(stream) => stream,
+            Err(error) => {
+                eprintln!("[GGWAVE_NATIVE][ERROR] build input stream: {error}");
+                LISTENING.store(false, Ordering::SeqCst);
+                return;
+            }
         };
-        if stream.play().is_err() {
+        if let Err(error) = stream.play() {
+            eprintln!("[GGWAVE_NATIVE][ERROR] input stream play: {error}");
             LISTENING.store(false, Ordering::SeqCst);
             return;
         }
+        eprintln!("[GGWAVE_NATIVE] listening: active");
         while LISTENING.load(Ordering::Relaxed) {
             thread::sleep(Duration::from_millis(50));
         }
         drop(stream);
+        eprintln!("[GGWAVE_NATIVE] listening: stopped");
     });
 
     thread::spawn(move || {
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+        let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-        else {
-            return;
+        {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                eprintln!("[GGWAVE_NATIVE][ERROR] tokio runtime: {error}");
+                return;
+            }
         };
         runtime.block_on(async move {
             while let Some(payload) = rx.recv().await {
                 if let Some(sink) = SINK.lock().as_ref() {
-                    let _ = sink.add(payload);
+                    if let Err(error) = sink.add(payload) {
+                        eprintln!("[GGWAVE_NATIVE][ERROR] FRB sink add: {error:?}");
+                    }
+                } else {
+                    eprintln!("[GGWAVE_NATIVE][ERROR] FRB message sink is not registered");
                 }
             }
         });
@@ -199,26 +258,41 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
 #[frb]
 pub fn stop_listening() -> Result<()> {
     LISTENING.store(false, Ordering::SeqCst);
+    eprintln!("[GGWAVE_NATIVE] stop_listening");
     Ok(())
 }
 
 #[frb]
 pub fn play_waveform(waveform: Vec<f32>) -> Result<()> {
+    eprintln!("[GGWAVE_NATIVE] play_waveform: samples={}", waveform.len());
     if waveform.is_empty() {
+        eprintln!("[GGWAVE_NATIVE][ERROR] play_waveform: waveform is empty");
         bail!("waveform is empty");
     }
     let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .context("no default output device")?;
-    let supported = device.default_output_config()?;
+    let device = host.default_output_device().context("no default output device").map_err(|error| {
+        eprintln!("[GGWAVE_NATIVE][ERROR] output device: {error:#}");
+        error
+    })?;
+    let supported = device.default_output_config().map_err(|error| {
+        eprintln!("[GGWAVE_NATIVE][ERROR] default_output_config: {error}");
+        error
+    })?;
     let config: cpal::StreamConfig = supported.clone().into();
     let channels = config.channels.max(1) as usize;
+    eprintln!(
+        "[GGWAVE_NATIVE] output config: rate={} channels={} format={:?}",
+        config.sample_rate.0,
+        channels,
+        supported.sample_format()
+    );
 
     thread::spawn(move || {
         let cursor = Arc::new(Mutex::new(0usize));
         let samples = Arc::new(waveform);
-        let err_fn = |_err| {};
+        let err_fn = |error| {
+            eprintln!("[GGWAVE_NATIVE][ERROR] output stream callback: {error}");
+        };
 
         macro_rules! build_stream {
             ($sample_ty:ty, $convert:expr) => {{
@@ -253,20 +327,35 @@ pub fn play_waveform(waveform: Vec<f32>) -> Result<()> {
             cpal::SampleFormat::U16 => build_stream!(u16, |v: f32| {
                 (((v.clamp(-1.0, 1.0) + 1.0) * 0.5) * u16::MAX as f32) as u16
             }),
-            _ => return,
+            other => {
+                eprintln!("[GGWAVE_NATIVE][ERROR] unsupported output sample format: {other:?}");
+                return;
+            }
         };
-        let Ok(stream) = stream_result else {
-            return;
+        let stream = match stream_result {
+            Ok(stream) => stream,
+            Err(error) => {
+                eprintln!("[GGWAVE_NATIVE][ERROR] build output stream: {error}");
+                return;
+            }
         };
-        if stream.play().is_ok() {
-            thread::sleep(Duration::from_millis(2500));
+        match stream.play() {
+            Ok(()) => {
+                eprintln!("[GGWAVE_NATIVE] output stream: playing");
+                thread::sleep(Duration::from_millis(2500));
+            }
+            Err(error) => {
+                eprintln!("[GGWAVE_NATIVE][ERROR] output stream play: {error}");
+            }
         }
         drop(stream);
+        eprintln!("[GGWAVE_NATIVE] output stream: finished");
     });
     Ok(())
 }
 
 #[frb]
 pub fn create_on_message_stream(sink: StreamSink<Vec<u8>>) {
+    eprintln!("[GGWAVE_NATIVE] FRB message sink registered");
     *SINK.lock() = Some(sink);
 }
