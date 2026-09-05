@@ -17,6 +17,9 @@ use tokio::sync::mpsc;
 
 use crate::frb_generated::StreamSink;
 
+const ENCODE_SAMPLE_RATE: f32 = 48_000.0;
+const PLAYBACK_TAIL_MS: u64 = 300;
+
 static SINK: Lazy<Mutex<Option<StreamSink<Vec<u8>>>>> = Lazy::new(|| Mutex::new(None));
 static FREQ_BITS: AtomicU32 = AtomicU32::new(12_000.0f32.to_bits());
 static LISTENING: AtomicBool = AtomicBool::new(false);
@@ -37,10 +40,33 @@ fn codec_for(sample_rate: f32) -> Result<Codec> {
     Ok(Codec::with_sample_rate(current_tuning(), sample_rate)?)
 }
 
+fn resample_linear(samples: &[f32], source_rate: f32, target_rate: f32) -> Vec<f32> {
+    if samples.is_empty() || source_rate <= 0.0 || target_rate <= 0.0 {
+        return samples.to_vec();
+    }
+    if (source_rate - target_rate).abs() < f32::EPSILON {
+        return samples.to_vec();
+    }
+
+    let target_len = ((samples.len() as f64) * target_rate as f64 / source_rate as f64)
+        .round()
+        .max(1.0) as usize;
+    let ratio = source_rate as f64 / target_rate as f64;
+    let mut out = Vec::with_capacity(target_len);
+    for i in 0..target_len {
+        let source_pos = i as f64 * ratio;
+        let left = source_pos.floor() as usize;
+        let right = (left + 1).min(samples.len() - 1);
+        let fraction = (source_pos - left as f64) as f32;
+        out.push(samples[left] + (samples[right] - samples[left]) * fraction);
+    }
+    out
+}
+
 #[frb]
 pub fn init_rust() -> Result<()> {
     eprintln!("[GGWAVE_NATIVE] init_rust: start");
-    let _ = codec_for(48_000.0).map_err(|error| {
+    let _ = codec_for(ENCODE_SAMPLE_RATE).map_err(|error| {
         eprintln!("[GGWAVE_NATIVE][ERROR] init_rust: {error:#}");
         error
     })?;
@@ -61,7 +87,7 @@ pub fn set_ultrasonic_freq(freq_start: f32) -> Result<()> {
     })?;
     FREQ_BITS.store(freq_start.to_bits(), Ordering::Relaxed);
 
-    let _ = codec_for(48_000.0).map_err(|error| {
+    let _ = codec_for(ENCODE_SAMPLE_RATE).map_err(|error| {
         eprintln!("[GGWAVE_NATIVE][ERROR] tuning codec recreate: {error:#}");
         error
     })?;
@@ -74,7 +100,7 @@ pub fn encode(data: Vec<u8>, protocol_id: i32, volume: i32) -> Result<Vec<f32>> 
         "[GGWAVE_NATIVE] encode: bytes={} protocol_id={} volume={}",
         data.len(), protocol_id, volume
     );
-    let codec = codec_for(48_000.0).map_err(|error| {
+    let codec = codec_for(ENCODE_SAMPLE_RATE).map_err(|error| {
         eprintln!("[GGWAVE_NATIVE][ERROR] encode codec init: {error:#}");
         error
     })?;
@@ -270,21 +296,30 @@ pub fn play_waveform(waveform: Vec<f32>) -> Result<()> {
         bail!("waveform is empty");
     }
     let host = cpal::default_host();
-    let device = host.default_output_device().context("no default output device").map_err(|error| {
-        eprintln!("[GGWAVE_NATIVE][ERROR] output device: {error:#}");
-        error
-    })?;
+    let device = host
+        .default_output_device()
+        .context("no default output device")
+        .map_err(|error| {
+            eprintln!("[GGWAVE_NATIVE][ERROR] output device: {error:#}");
+            error
+        })?;
     let supported = device.default_output_config().map_err(|error| {
         eprintln!("[GGWAVE_NATIVE][ERROR] default_output_config: {error}");
         error
     })?;
     let config: cpal::StreamConfig = supported.clone().into();
     let channels = config.channels.max(1) as usize;
+    let output_rate = config.sample_rate.0 as f32;
+    let waveform = resample_linear(&waveform, ENCODE_SAMPLE_RATE, output_rate);
+    let playback_ms = ((waveform.len() as f64 / output_rate as f64) * 1000.0).ceil() as u64
+        + PLAYBACK_TAIL_MS;
     eprintln!(
-        "[GGWAVE_NATIVE] output config: rate={} channels={} format={:?}",
+        "[GGWAVE_NATIVE] output config: rate={} channels={} format={:?} samples={} playback_ms={}",
         config.sample_rate.0,
         channels,
-        supported.sample_format()
+        supported.sample_format(),
+        waveform.len(),
+        playback_ms
     );
 
     thread::spawn(move || {
@@ -341,8 +376,8 @@ pub fn play_waveform(waveform: Vec<f32>) -> Result<()> {
         };
         match stream.play() {
             Ok(()) => {
-                eprintln!("[GGWAVE_NATIVE] output stream: playing");
-                thread::sleep(Duration::from_millis(2500));
+                eprintln!("[GGWAVE_NATIVE] output stream: playing for {playback_ms} ms");
+                thread::sleep(Duration::from_millis(playback_ms));
             }
             Err(error) => {
                 eprintln!("[GGWAVE_NATIVE][ERROR] output stream play: {error}");
