@@ -40,7 +40,7 @@ flutter_rust_bridge_codegen integrate \
   --template plugin \
   "$no_integration_test_flag"
 
-# Normalize only generated Android build compatibility knobs. Flutter 3.47 / AGP
+# Normalize only generated Android compatibility knobs. Flutter 3.47 / AGP
 # builds Kotlin with JVM 17, while some generated plugin templates still leave
 # Java source/target compatibility at 1.8. Gradle rejects that mismatch.
 if [ -f android/build.gradle ]; then
@@ -58,12 +58,34 @@ if [ -f android/build.gradle.kts ]; then
     android/build.gradle.kts
   rm -f android/build.gradle.kts.bak
 fi
+
+# AGP no longer allows Android library namespace to be declared with the
+# manifest package attribute. The generated plugin build.gradle(.kts) owns the
+# namespace, so strip only this legacy attribute from the generated manifest.
+manifest='android/src/main/AndroidManifest.xml'
+if [ -f "$manifest" ]; then
+  python3 - "$manifest" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+text = re.sub(r'\s+package="[^"]+"', '', text, count=1)
+path.write_text(text)
+PY
+fi
+
 if grep -R -E 'compileSdk(Version)?[[:space:]=]+33' android --include='*.gradle' --include='*.gradle.kts'; then
   echo 'FRB Android scaffold still contains compileSdk 33 after normalization.' >&2
   exit 1
 fi
 if grep -R -F 'JavaVersion.VERSION_1_8' android --include='*.gradle' --include='*.gradle.kts'; then
   echo 'FRB Android scaffold still contains Java 1.8 after JVM 17 normalization.' >&2
+  exit 1
+fi
+if [ -f "$manifest" ] && grep -q -E '<manifest[^>]+package=' "$manifest"; then
+  echo 'FRB Android library manifest still contains a legacy package attribute.' >&2
   exit 1
 fi
 
@@ -76,4 +98,4 @@ trap - EXIT
 flutter pub get
 flutter_rust_bridge_codegen generate
 
-echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36 and JVM 17, without changing the package manifest/public barrel or retaining template demo files.'
+echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36, JVM 17, and an AGP-compatible library manifest, without changing the package manifest/public barrel or retaining template demo files.'
