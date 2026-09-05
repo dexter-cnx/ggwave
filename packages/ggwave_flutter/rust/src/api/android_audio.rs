@@ -12,9 +12,10 @@ use std::{
 use anyhow::{anyhow, bail, Result};
 use ggwave_core::{Codec, PacketDeduper, Protocol};
 use oboe::{
-    AudioInputCallback, AudioInputStreamSafe, AudioOutputCallback, AudioOutputStream, AudioStream,
-    AudioStreamBase, AudioStreamBuilder, AudioStreamSafe, DataCallbackResult, Error as OboeError,
-    InputPreset, Mono, PerformanceMode, SampleRateConversionQuality, SharingMode, Usage,
+    AudioInputCallback, AudioInputStreamSafe, AudioOutputCallback, AudioOutputStreamSafe,
+    AudioStream, AudioStreamBase, AudioStreamBuilder, AudioStreamSafe, DataCallbackResult,
+    Error as OboeError, InputPreset, Mono, PerformanceMode, SampleRateConversionQuality,
+    SharingMode, Usage,
 };
 
 use super::{current_tuning, CODEC_SERIAL, ENCODE_SAMPLE_RATE, LISTENING, PLAYBACK_TAIL_MS, SINK};
@@ -91,7 +92,7 @@ impl AudioOutputCallback for OutputCallback {
 
     fn on_audio_ready(
         &mut self,
-        _audio_stream: &mut dyn AudioOutputStream,
+        _audio_stream: &mut dyn AudioOutputStreamSafe,
         audio_data: &mut [f32],
     ) -> DataCallbackResult {
         let remaining = self.samples.len().saturating_sub(self.cursor);
@@ -112,7 +113,7 @@ impl AudioOutputCallback for OutputCallback {
 
     fn on_error_after_close(
         &mut self,
-        _audio_stream: &mut dyn AudioOutputStream,
+        _audio_stream: &mut dyn AudioOutputStreamSafe,
         error: OboeError,
     ) {
         eprintln!("[GGWAVE_NATIVE][ERROR] Oboe output stream closed: {error:?}");
