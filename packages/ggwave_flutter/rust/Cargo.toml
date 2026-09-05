@@ -17,5 +17,9 @@ parking_lot = "0.12"
 cpal = "0.15"
 tokio = { version = "1", features = ["rt", "sync"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1.1"
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
