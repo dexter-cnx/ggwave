@@ -10,6 +10,7 @@ on:
       - 'packages/ggwave_dart/**'
       - 'packages/ggwave_flutter/**'
       - 'tool/bootstrap_flutter_native.sh'
+      - 'tool/prepare_flutter_android_validation.sh'
       - 'tool/check_flutter_scaffold.sh'
       - '.github/workflows/flutter-android.yml'
   pull_request:
@@ -20,6 +21,7 @@ on:
       - 'packages/ggwave_dart/**'
       - 'packages/ggwave_flutter/**'
       - 'tool/bootstrap_flutter_native.sh'
+      - 'tool/prepare_flutter_android_validation.sh'
       - 'tool/check_flutter_scaffold.sh'
       - '.github/workflows/flutter-android.yml'
 
@@ -67,52 +69,7 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
-        run: |
-          cd packages/ggwave_flutter
-          original_pubspec="$(mktemp)"
-          original_barrel="$(mktemp)"
-          cp pubspec.yaml "$original_pubspec"
-          cp lib/ggwave_rs_flutter.dart "$original_barrel"
-          restore_package_files() {
-            cp "$original_pubspec" pubspec.yaml
-            cp "$original_barrel" lib/ggwave_rs_flutter.dart
-            rm -f "$original_pubspec" "$original_barrel"
-          }
-          trap restore_package_files EXIT
-          flutter_rust_bridge_codegen integrate --template plugin --no-enable-integration-test
-
-          # FRB 2.8's plugin template still compiles against Android API 33.
-          # Flutter 3.47's AndroidX dependency graph requires API 34+, while
-          # this workflow deliberately installs API 36. Normalize only the
-          # compile SDK; minSdk/targetSdk remain owned by the generated scaffold.
-          if [ -f android/build.gradle ]; then
-            sed -i -E \
-              -e 's/compileSdkVersion[[:space:]]+33/compileSdkVersion 36/g' \
-              -e 's/compileSdk[[:space:]]+33/compileSdk 36/g' \
-              android/build.gradle
-          fi
-          if [ -f android/build.gradle.kts ]; then
-            sed -i -E \
-              -e 's/compileSdk[[:space:]]*=[[:space:]]*33/compileSdk = 36/g' \
-              android/build.gradle.kts
-          fi
-          if grep -R -E 'compileSdk(Version)?[[:space:]=]+33' android --include='*.gradle' --include='*.gradle.kts'; then
-            echo 'FRB Android scaffold still contains compileSdk 33 after normalization.' >&2
-            exit 1
-          fi
-
-          # FRB 2.8 overlays its default demo/integration-test files and mutates
-          # the package barrel even for an existing custom plugin. They are not
-          # part of ggwave_rs_flutter and reference template-only APIs, so remove
-          # them and restore the package-owned manifest/barrel before generation.
-          rm -f rust/src/api/simple.rs
-          rm -f lib/src/rust/api/simple.dart
-          rm -rf test_driver integration_test
-
-          restore_package_files
-          trap - EXIT
-          flutter pub get
-          flutter_rust_bridge_codegen generate
+        run: bash tool/bootstrap_flutter_native.sh
 
       - name: Analyze and test Dart package
         run: |
