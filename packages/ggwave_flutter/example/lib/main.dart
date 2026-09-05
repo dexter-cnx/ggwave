@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -90,18 +91,20 @@ class _ValidationPageState extends State<ValidationPage> {
     try {
       final permission = await Permission.microphone.request();
       if (!permission.isGranted) {
+        if (!mounted) return;
         setState(() => _status = 'Microphone permission denied');
         return;
       }
       await _ensureInitialized();
       await _applyProfile();
       await _transport.startListening(protocol: _profile.protocol);
+      if (!mounted) return;
       setState(() {
         _listening = true;
         _status = 'Listening: ${_profile.label}';
       });
     } catch (error) {
-      setState(() => _status = 'Listen error: $error');
+      if (mounted) setState(() => _status = 'Listen error: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -111,12 +114,13 @@ class _ValidationPageState extends State<ValidationPage> {
     setState(() => _busy = true);
     try {
       await _transport.stopListening();
+      if (!mounted) return;
       setState(() {
         _listening = false;
         _status = 'Listening stopped';
       });
     } catch (error) {
-      setState(() => _status = 'Stop error: $error');
+      if (mounted) setState(() => _status = 'Stop error: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -133,18 +137,20 @@ class _ValidationPageState extends State<ValidationPage> {
     try {
       await _ensureInitialized();
       await _applyProfile();
+      final bytes = Uint8List.fromList(utf8.encode(text));
       final waveform = await _transport.encode(
-        Uint8List.fromList(utf8.encode(text)),
+        bytes,
         protocol: _profile.protocol,
         volume: _profile.protocol.isUltrasonic ? 85 : 60,
       );
       await _transport.play(waveform);
+      if (!mounted) return;
       setState(() {
         _sent += 1;
-        _status = 'Sent ${utf8.encode(text).length} bytes via ${_profile.label}';
+        _status = 'Sent ${bytes.length} bytes via ${_profile.label}';
       });
     } catch (error) {
-      setState(() => _status = 'Send error: $error');
+      if (mounted) setState(() => _status = 'Send error: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -173,11 +179,11 @@ class _ValidationPageState extends State<ValidationPage> {
   @override
   void dispose() {
     _payloadController.dispose();
-    _messageSub?.cancel();
+    unawaited(_messageSub?.cancel());
     if (_listening) {
-      _transport.stopListening();
+      unawaited(_transport.stopListening());
     }
-    _transport.dispose();
+    unawaited(_transport.dispose());
     super.dispose();
   }
 
@@ -193,18 +199,36 @@ class _ValidationPageState extends State<ValidationPage> {
           children: [
             SegmentedButton<ValidationRole>(
               segments: const [
-                ButtonSegment(value: ValidationRole.tx, label: Text('TX / Send'), icon: Icon(Icons.volume_up)),
-                ButtonSegment(value: ValidationRole.rx, label: Text('RX / Listen'), icon: Icon(Icons.mic)),
+                ButtonSegment(
+                  value: ValidationRole.tx,
+                  label: Text('TX / Send'),
+                  icon: Icon(Icons.volume_up),
+                ),
+                ButtonSegment(
+                  value: ValidationRole.rx,
+                  label: Text('RX / Listen'),
+                  icon: Icon(Icons.mic),
+                ),
               ],
               selected: {_role},
-              onSelectionChanged: _busy ? null : (value) => _changeRole(value.first),
+              onSelectionChanged: _busy
+                  ? null
+                  : (value) => _changeRole(value.first),
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<ValidationProfile>(
-              value: _profile,
-              decoration: const InputDecoration(labelText: 'Protocol / Frequency', border: OutlineInputBorder()),
+              initialValue: _profile,
+              decoration: const InputDecoration(
+                labelText: 'Protocol / Frequency',
+                border: OutlineInputBorder(),
+              ),
               items: _profiles
-                  .map((profile) => DropdownMenuItem(value: profile, child: Text(profile.label)))
+                  .map(
+                    (profile) => DropdownMenuItem(
+                      value: profile,
+                      child: Text(profile.label),
+                    ),
+                  )
                   .toList(),
               onChanged: _busy ? null : _changeProfile,
             ),
@@ -213,7 +237,10 @@ class _ValidationPageState extends State<ValidationPage> {
               TextField(
                 controller: _payloadController,
                 maxLength: 140,
-                decoration: const InputDecoration(labelText: 'Payload', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Payload',
+                  border: OutlineInputBorder(),
+                ),
               ),
               FilledButton.icon(
                 onPressed: _busy ? null : _send,
@@ -222,9 +249,13 @@ class _ValidationPageState extends State<ValidationPage> {
               ),
             ] else ...[
               FilledButton.icon(
-                onPressed: _busy ? null : (_listening ? _stopListening : _startListening),
+                onPressed: _busy
+                    ? null
+                    : (_listening ? _stopListening : _startListening),
                 icon: Icon(_listening ? Icons.stop : Icons.mic),
-                label: Text(_listening ? 'Stop Listening' : 'Start Listening'),
+                label: Text(
+                  _listening ? 'Stop Listening' : 'Start Listening',
+                ),
               ),
             ],
             const SizedBox(height: 24),
@@ -234,7 +265,10 @@ class _ValidationPageState extends State<ValidationPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Status', style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      'Status',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                     const SizedBox(height: 8),
                     Text(_status),
                     const Divider(height: 24),
