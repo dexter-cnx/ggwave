@@ -11,21 +11,29 @@ if ! command -v flutter_rust_bridge_codegen >/dev/null 2>&1; then
 fi
 
 original_pubspec="$(mktemp)"
-original_barrel="$(mktemp)"
 cp pubspec.yaml "$original_pubspec"
-cp lib/ggwave_rs_flutter.dart "$original_barrel"
 
-restore_package_files() {
+restore_pubspec() {
   cp "$original_pubspec" pubspec.yaml
-  cp "$original_barrel" lib/ggwave_rs_flutter.dart
+}
+
+write_public_barrel() {
+  cat > lib/ggwave_rs_flutter.dart <<'DART'
+/// Rust-backed cross-platform ggwave transport for Flutter.
+library;
+
+export 'package:ggwave_dart/ggwave_dart.dart';
+export 'src/ggwave_flutter_transport.dart';
+DART
 }
 
 cleanup_temp_files() {
-  rm -f "$original_pubspec" "$original_barrel"
+  rm -f "$original_pubspec"
 }
 
 restore_and_cleanup() {
-  restore_package_files
+  restore_pubspec
+  write_public_barrel
   cleanup_temp_files
 }
 trap restore_and_cleanup EXIT
@@ -119,19 +127,22 @@ rm -f rust/src/api/simple.rs
 rm -f lib/src/rust/api/simple.dart
 rm -rf test_driver integration_test
 
-# FRB integrate mutates the package manifest/barrel. Restore the package-owned
-# versions before dependency resolution, but keep the temp copies alive because
-# FRB generate may mutate the barrel again.
-restore_package_files
+# FRB integrate mutates package-owned files. Restore them before dependency
+# resolution. The public barrel is written from a canonical definition instead
+# of restoring a snapshot, so a previously dirty/generated barrel cannot leak
+# into another bootstrap run.
+restore_pubspec
+write_public_barrel
 flutter pub get
 flutter_rust_bridge_codegen generate
 
-# FRB 2.8 generate can append template exports such as api/simple.dart even
-# after the template source was removed. The public package barrel is owned by
-# this repository, so restore it after generation and remove any stale template
-# Dart file. This keeps fresh clones/builds deterministic.
-restore_package_files
+# FRB 2.8 generate may append template exports such as api/simple.dart. Rewrite
+# the package-owned public barrel after generation and remove stale template
+# artifacts every time.
+restore_pubspec
+write_public_barrel
 rm -f lib/src/rust/api/simple.dart
+rm -f rust/src/api/simple.rs
 
 # Fail fast if codegen did not produce the runtime files required by transport.
 if [ ! -f lib/src/rust/frb_generated.dart ]; then
@@ -142,8 +153,16 @@ if [ ! -f rust/src/frb_generated.rs ]; then
   echo 'FRB codegen did not produce rust/src/frb_generated.rs.' >&2
   exit 1
 fi
+if grep -q "api/simple.dart" lib/ggwave_rs_flutter.dart; then
+  echo 'Stale FRB template export api/simple.dart survived bootstrap.' >&2
+  exit 1
+fi
+if ! grep -q "export 'src/ggwave_flutter_transport.dart';" lib/ggwave_rs_flutter.dart; then
+  echo 'Public Flutter transport export is missing after bootstrap.' >&2
+  exit 1
+fi
 
 cleanup_temp_files
 trap - EXIT
 
-echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36, JVM 17, AGP-compatible manifest, CPAL Android context bootstrap, and a preserved package-owned Dart barrel.'
+echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36, JVM 17, AGP-compatible manifest, CPAL Android context bootstrap, and a canonical package-owned Dart barrel.'
