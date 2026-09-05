@@ -21,12 +21,24 @@ restore_package_files() {
 }
 trap restore_package_files EXIT
 
-# Exact flutter_rust_bridge_codegen 2.8.0 uses
-# --no-enable-integration-test. The local prepare script normalizes any
-# globally installed FRB codegen to 2.8.0 before this bootstrap runs.
+# FRB 2.8.0 distributions in the wild expose one of two spellings for
+# disabling the integration-test template. Detect the actual CLI contract
+# instead of assuming one spelling so local VSCode and CI stay reproducible.
+integrate_help="$(flutter_rust_bridge_codegen integrate --help 2>&1)"
+if grep -q -- '--no-enable-integration-test' <<<"$integrate_help"; then
+  no_integration_test_flag='--no-enable-integration-test'
+elif grep -q -- '--no-integration-test' <<<"$integrate_help"; then
+  no_integration_test_flag='--no-integration-test'
+else
+  echo 'Unable to determine the FRB integrate flag for disabling integration tests.' >&2
+  echo "$integrate_help" >&2
+  exit 2
+fi
+
+echo "Using FRB integrate flag: $no_integration_test_flag"
 flutter_rust_bridge_codegen integrate \
   --template plugin \
-  --no-enable-integration-test
+  "$no_integration_test_flag"
 
 if [ -f android/build.gradle ]; then
   sed -i.bak -E \
