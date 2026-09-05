@@ -17,9 +17,15 @@ if grep -Rqs 'GENERATED FILE PLACEHOLDER' "$PKG/lib/src/rust"; then
   missing=1
 fi
 
+android_context_plugin="$PKG/android/src/main/kotlin/com/dextercnx/ggwave/GgwaveRsFlutterPlugin.kt"
+if [[ ! -f "$android_context_plugin" ]]; then
+  echo 'MISSING: Android CPAL/ndk-context bootstrap plugin' >&2
+  missing=1
+fi
+
 if [[ "$missing" -ne 0 ]]; then
-  echo 'Run ./tool/bootstrap_flutter_native.sh and commit the generated scaffold.' >&2
+  echo 'Run make bootstrap (or ./tool/bootstrap_flutter_native.sh) to recreate generated native scaffolds.' >&2
   exit 2
 fi
 
-echo 'Flutter native scaffold is present for Android/iOS/macOS/Windows/Linux.'
+echo 'Flutter native scaffold is present and Android CPAL context bootstrap is installed.'
