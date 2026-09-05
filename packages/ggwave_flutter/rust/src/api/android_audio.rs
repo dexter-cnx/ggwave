@@ -10,14 +10,14 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use ggwave_core::PacketDeduper;
+use ggwave_core::{Codec, PacketDeduper, Protocol};
 use oboe::{
     AudioInputCallback, AudioInputStreamSafe, AudioStream, AudioStreamBase, AudioStreamBuilder,
     AudioStreamSafe, DataCallbackResult, Error as OboeError, InputPreset, Mono, PerformanceMode,
     SampleRateConversionQuality, SharingMode,
 };
 
-use super::{codec_for, CODEC_SERIAL, ENCODE_SAMPLE_RATE, LISTENING, SINK};
+use super::{current_tuning, CODEC_SERIAL, ENCODE_SAMPLE_RATE, LISTENING, SINK};
 
 const FRAMES_PER_CALLBACK: usize = 1024;
 const AUDIO_QUEUE_DEPTH: usize = 8;
@@ -52,9 +52,6 @@ impl AudioInputCallback for InputCallback {
             );
         }
 
-        // Oboe is explicitly configured for 1024 mono frames. Keep the callback
-        // allocation-free and lock-free: copy the fixed block and let the decoder
-        // worker do the expensive ggwave work.
         if audio_data.len() == FRAMES_PER_CALLBACK {
             let mut block = [0.0f32; FRAMES_PER_CALLBACK];
             block.copy_from_slice(audio_data);
@@ -84,8 +81,16 @@ impl AudioInputCallback for InputCallback {
     }
 }
 
-fn run_decoder(rx: Receiver<[f32; FRAMES_PER_CALLBACK]>, sample_rate: f32) {
-    let codec = match codec_for(sample_rate) {
+fn run_decoder(
+    rx: Receiver<[f32; FRAMES_PER_CALLBACK]>,
+    sample_rate: f32,
+    protocol: Protocol,
+) {
+    let codec = {
+        let _serial = CODEC_SERIAL.lock();
+        Codec::with_sample_rate_and_rx_protocol(current_tuning(), sample_rate, protocol)
+    };
+    let codec = match codec {
         Ok(codec) => codec,
         Err(error) => {
             eprintln!("[GGWAVE_NATIVE][ERROR] Oboe decoder init: {error:#}");
@@ -94,6 +99,8 @@ fn run_decoder(rx: Receiver<[f32; FRAMES_PER_CALLBACK]>, sample_rate: f32) {
         }
     };
     let mut deduper = PacketDeduper::default();
+
+    eprintln!("[GGWAVE_NATIVE] Oboe RX protocol filter: {protocol:?}");
 
     while LISTENING.load(Ordering::Relaxed) {
         let block = match rx.recv_timeout(Duration::from_millis(100)) {
@@ -137,9 +144,11 @@ fn run_decoder(rx: Receiver<[f32; FRAMES_PER_CALLBACK]>, sample_rate: f32) {
 }
 
 pub(super) fn start_listening(protocol_id: i32) -> Result<()> {
+    let protocol = Protocol::from_app_id(protocol_id);
     eprintln!(
-        "[GGWAVE_NATIVE] Android Oboe listen: requested protocol_id={} operating_rate={} frames_per_callback={}",
+        "[GGWAVE_NATIVE] Android Oboe listen: requested protocol_id={} protocol={:?} operating_rate={} frames_per_callback={}",
         protocol_id,
+        protocol,
         ENCODE_SAMPLE_RATE,
         FRAMES_PER_CALLBACK
     );
@@ -185,7 +194,7 @@ pub(super) fn start_listening(protocol_id: i32) -> Result<()> {
         let actual_preset = stream.get_input_preset();
         let actual_api = stream.get_audio_api();
 
-        let decoder = thread::spawn(move || run_decoder(audio_rx, actual_rate));
+        let decoder = thread::spawn(move || run_decoder(audio_rx, actual_rate, protocol));
 
         if let Err(error) = stream.start() {
             let message = format!("Oboe start input failed: {error:?}");
