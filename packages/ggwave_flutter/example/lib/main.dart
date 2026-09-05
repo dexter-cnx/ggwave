@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ggwave_rs_flutter/ggwave_rs_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -60,36 +61,61 @@ class _ValidationPageState extends State<ValidationPage> {
   String _status = 'Not initialized';
   StreamSubscription<Uint8List>? _messageSub;
 
+  void _log(String message) {
+    debugPrint('[GGWAVE][UI] $message');
+  }
+
+  void _logError(String stage, Object error, StackTrace stackTrace) {
+    debugPrint('[GGWAVE][ERROR][$stage] $error');
+    debugPrintStack(
+      label: '[GGWAVE][STACK][$stage]',
+      stackTrace: stackTrace,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
-    _messageSub = _transport.messages.listen((bytes) {
-      if (!mounted) return;
-      setState(() {
-        _received += 1;
-        _lastReceived = utf8.decode(bytes, allowMalformed: true);
-        _status = 'Received ${bytes.length} bytes';
-      });
-    });
+    _log('validation page initialized');
+    _messageSub = _transport.messages.listen(
+      (bytes) {
+        _log('received ${bytes.length} bytes');
+        if (!mounted) return;
+        setState(() {
+          _received += 1;
+          _lastReceived = utf8.decode(bytes, allowMalformed: true);
+          _status = 'Received ${bytes.length} bytes';
+        });
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        _logError('message-stream', error, stackTrace);
+      },
+    );
   }
 
   Future<void> _ensureInitialized() async {
     if (_initialized) return;
+    _log('transport initialize: start');
     await _transport.initialize();
     _initialized = true;
+    _log('transport initialize: success');
   }
 
   Future<void> _applyProfile() async {
     final hz = _profile.frequencyHz;
     if (hz != null) {
+      _log('profile apply: ${_profile.label} ($hz Hz)');
       await _transport.setUltrasonicFrequency(hz);
+      _log('profile apply: success');
     }
   }
 
   Future<void> _startListening() async {
     setState(() => _busy = true);
+    _log('listen: start (${_profile.label})');
     try {
       final permission = await Permission.microphone.request();
+      _log('microphone permission: $permission');
       if (!permission.isGranted) {
         if (!mounted) return;
         setState(() => _status = 'Microphone permission denied');
@@ -97,13 +123,16 @@ class _ValidationPageState extends State<ValidationPage> {
       }
       await _ensureInitialized();
       await _applyProfile();
+      _log('native startListening: start');
       await _transport.startListening(protocol: _profile.protocol);
+      _log('native startListening: success');
       if (!mounted) return;
       setState(() {
         _listening = true;
         _status = 'Listening: ${_profile.label}';
       });
-    } catch (error) {
+    } catch (error, stackTrace) {
+      _logError('listen', error, stackTrace);
       if (mounted) setState(() => _status = 'Listen error: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -112,14 +141,17 @@ class _ValidationPageState extends State<ValidationPage> {
 
   Future<void> _stopListening() async {
     setState(() => _busy = true);
+    _log('listen: stop');
     try {
       await _transport.stopListening();
+      _log('listen: stopped');
       if (!mounted) return;
       setState(() {
         _listening = false;
         _status = 'Listening stopped';
       });
-    } catch (error) {
+    } catch (error, stackTrace) {
+      _logError('stop-listening', error, stackTrace);
       if (mounted) setState(() => _status = 'Stop error: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -134,22 +166,34 @@ class _ValidationPageState extends State<ValidationPage> {
     }
 
     setState(() => _busy = true);
+    final bytes = Uint8List.fromList(utf8.encode(text));
+    _log(
+      'send: start bytes=${bytes.length} profile=${_profile.label} protocol=${_profile.protocol.id}',
+    );
     try {
       await _ensureInitialized();
       await _applyProfile();
-      final bytes = Uint8List.fromList(utf8.encode(text));
+
+      final volume = _profile.protocol.isUltrasonic ? 85 : 60;
+      _log('encode: start volume=$volume');
       final waveform = await _transport.encode(
         bytes,
         protocol: _profile.protocol,
-        volume: _profile.protocol.isUltrasonic ? 85 : 60,
+        volume: volume,
       );
+      _log('encode: success samples=${waveform.length}');
+
+      _log('play: start');
       await _transport.play(waveform);
+      _log('play: accepted by native layer');
+
       if (!mounted) return;
       setState(() {
         _sent += 1;
         _status = 'Sent ${bytes.length} bytes via ${_profile.label}';
       });
-    } catch (error) {
+    } catch (error, stackTrace) {
+      _logError('send', error, stackTrace);
       if (mounted) setState(() => _status = 'Send error: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -165,6 +209,7 @@ class _ValidationPageState extends State<ValidationPage> {
       _role = role;
       _status = role == ValidationRole.tx ? 'TX mode' : 'RX mode';
     });
+    _log('role changed: ${role.name}');
   }
 
   Future<void> _changeProfile(ValidationProfile? profile) async {
@@ -174,10 +219,12 @@ class _ValidationPageState extends State<ValidationPage> {
     }
     if (!mounted) return;
     setState(() => _profile = profile);
+    _log('profile changed: ${profile.label}');
   }
 
   @override
   void dispose() {
+    _log('validation page disposed');
     _payloadController.dispose();
     unawaited(_messageSub?.cancel());
     if (_listening) {
