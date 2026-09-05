@@ -1,0 +1,16 @@
+# Generated Flutter/FRB native scaffolds used for local validation.
+packages/ggwave_flutter/android/
+packages/ggwave_flutter/ios/
+packages/ggwave_flutter/macos/
+packages/ggwave_flutter/linux/
+packages/ggwave_flutter/windows/
+packages/ggwave_flutter/example/android/
+
+# Flutter/Dart build state.
+.dart_tool/
+.buildlog/
+build/
+**/.dart_tool/
+**/build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies

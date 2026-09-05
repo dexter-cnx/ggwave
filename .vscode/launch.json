@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "ggwave Android Validation",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "${workspaceFolder}/packages/ggwave_flutter/example",
+      "program": "${workspaceFolder}/packages/ggwave_flutter/example/lib/main.dart",
+      "preLaunchTask": "Prepare ggwave Android validation"
+    }
+  ]
+}

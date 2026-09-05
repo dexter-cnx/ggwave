@@ -29,35 +29,50 @@ ggwave-kotlin-validation-apk
 SHA-256: 6ca205abe5c17150be07e1b59d1c6f23b41b96b9adb45f58728c7750cb737be1
 ```
 
-The standalone APK consumes the public Kotlin API and is intended for the two-device procedure below, so physical-device testing does not require creating a separate host application.
-
-This is **build validation only**. The physical-device acceptance section below is still required before claiming acoustic hardware validation.
+This is **build validation only**. Physical-device testing is still required before claiming acoustic hardware validation.
 
 ### Flutter Android — build validated, hardware validation pending
 
-GitHub Actions workflow `Flutter Android #25`, run `33615793479`, passed on 2026-09-02. The complete Flutter Android build gate validated:
+GitHub Actions workflow `Flutter Android #32`, run `33622377147`, passed on `main` after PR #1 merged. The complete Flutter Android build gate validated Flutter 3.47.0, FRB 2.8.0 generation, Dart/Flutter analysis and tests, Android example build, and artifact upload.
 
-- Flutter 3.47.0 / Dart 3.12 baseline setup;
-- FRB codegen 2.8.0 installation from crates.io;
-- monorepo dependency resolution for `ggwave_dart`, `ggwave_rs_flutter`, and the example app;
-- FRB/Cargokit integration and generated binding creation;
-- removal of FRB template-only demo/integration-test artifacts so they do not enter the public package API;
-- restoration of the package-owned `pubspec.yaml` and `lib/ggwave_rs_flutter.dart` after FRB integration;
-- normalization of the FRB 2.8 generated Android plugin scaffold from `compileSdk 33` to `compileSdk 36`;
-- Dart format/analyze/test;
-- Flutter format/analyze/test;
-- Android example scaffold generation using Flutter 3.47.0;
-- debug APK build;
-- artifact upload.
+The Flutter example now also serves as a physical hardware-validation UI. Hardware validation remains pending until representative two-device acoustic results are recorded.
 
-Artifact from run `33615793479`:
+## Run the Flutter validation app from VSCode
 
-```text
-ggwave-rs-flutter-android-example
-workflow artifact SHA-256 digest: 76c6b2a47dc78e52aa98ecec6a3620cf1e692f746dcee4b8fd4729826240aaa0
-```
+For local device testing, prefer the repository VSCode launch configuration instead of downloading and copying a CI APK.
 
-This establishes **Flutter Android build validation**. It does not establish microphone/speaker acoustic behavior on physical devices. The physical-device acceptance section below remains required.
+1. Open the repository root in VSCode.
+2. Connect a physical Android device with USB debugging enabled.
+3. Select the device from the Flutter device picker.
+4. Open **Run and Debug**.
+5. Select **ggwave Android Validation**.
+6. Press **F5**.
+
+The launch configuration runs `tool/prepare_flutter_android_validation.sh` as a `preLaunchTask`. It:
+
+- installs `flutter_rust_bridge_codegen` 2.8.0 through Cargo when missing;
+- generates the FRB/Cargokit native plugin scaffold;
+- normalizes the generated Android plugin to compileSdk 36;
+- removes FRB template-only demo/integration artifacts and restores the package-owned manifest/barrel;
+- generates the example Android runner when needed;
+- adds `android.permission.RECORD_AUDIO` to the generated example manifest;
+- resolves Flutter dependencies.
+
+VSCode then runs `packages/ggwave_flutter/example/lib/main.dart` directly on the selected physical device. No CI artifact download or manual APK copy is required.
+
+The validation UI provides:
+
+- TX / Send mode;
+- RX / Listen mode;
+- Audible Fast;
+- Ultrasonic 12 kHz;
+- Ultrasonic 15 kHz;
+- Ultrasonic 18 kHz;
+- payload entry up to 140 bytes;
+- runtime microphone permission;
+- Start/Stop Listening;
+- sent/received counters;
+- last received payload and current status.
 
 ## Build prerequisites
 
@@ -76,59 +91,30 @@ Run:
 bash ./tool/release_kotlin_check.sh
 ```
 
-Build the standalone validation app locally with:
-
-```bash
-gradle -p examples/ggwave_kotlin_validation :app:assembleDebug
-```
-
-Or download the `ggwave-kotlin-validation-apk` artifact from successful run `33600474569`.
-
 ### Flutter Android
 
 - Flutter >= 3.47
 - Dart >= 3.12
-- Rust >= 1.77
+- Rust/Cargo available on PATH
 - Android SDK 36
 - Android NDK 27
-- `flutter_rust_bridge_codegen` 2.8.0 installed as a Cargo binary
-- Linux host builds additionally need ALSA development headers and `pkg-config` because FRB `cargo expand` compiles the Rust crate on the host before Android cross-compilation
+- Python 3 for the local validation bootstrap manifest patch
 - physical Android device with microphone and speaker for hardware acceptance
 
-Generate the native plugin scaffold with:
-
-```bash
-./tool/bootstrap_flutter_native.sh
-```
-
-The bootstrap intentionally preserves the repository-owned public manifest/barrel, removes FRB template demo files, and normalizes the generated Android plugin to compileSdk 36. Then validate:
-
-```bash
-cargo fmt --check --all
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cd packages/ggwave_flutter
-flutter pub get
-flutter analyze
-flutter test
-cd example
-flutter run
-```
-
-CI additionally creates an Android example scaffold and builds the APK so source implementation, build validation, and hardware validation remain independently evidenced.
+The VSCode preLaunch task installs FRB codegen automatically if it is not already present.
 
 ## Physical-device procedure
 
 Use two Android devices, A and B.
 
-1. Install the validation APK on both devices.
-2. Grant microphone permission on both devices.
-3. On B, tap Start Listening.
-4. On A, send an Audible packet and confirm B increments its receive counter and displays the payload.
-5. Repeat with Ultrasonic 12 kHz, 15 kHz and 18 kHz.
+1. Run the validation app on both devices from VSCode.
+2. On B, select **RX / Listen**, select the desired profile, then tap **Start Listening** and grant microphone permission.
+3. On A, select **TX / Send**, choose the same profile, enter a payload, and tap **Send**.
+4. Confirm B increments its receive counter and displays the exact payload.
+5. Repeat with Audible Fast and Ultrasonic 12 kHz, 15 kHz, and 18 kHz.
 6. Reverse roles: A listens and B transmits.
 7. Repeat at approximately 0.5 m, 1 m and 2 m where practical.
-8. Test at least speaker-to-mic facing and normal handheld orientations.
+8. Test speaker-to-mic facing and normal handheld orientations.
 9. Background and resume the receiving app, then confirm listening can be restarted cleanly.
 10. Execute ten start/listen/stop cycles without crash, stuck audio state or leaked playback.
 
