@@ -23,6 +23,29 @@ build/
 **/.flutter-plugins-dependencies
 **/.packages
 
+# Rust/Cargo build state.
+target/
+**/target/
+
+# Gradle/Android local build state. Keep source-controlled Gradle wrapper files,
+# but ignore generated caches and machine-local SDK configuration.
+.gradle/
+**/.gradle/
+**/.cxx/
+**/.kotlin/
+**/local.properties
+**/captures/
+**/*.iml
+
+# Some local Gradle setups place cache directories under a project `gradle/`
+# directory. Ignore only cache-shaped children, not wrapper/source files.
+**/gradle/[0-9]*/
+**/gradle/caches/
+**/gradle/daemon/
+**/gradle/native/
+**/gradle/notifications/
+**/gradle/vcs-*/
+
 # IDE / OS noise generated during local validation.
 .DS_Store
 **/.DS_Store
