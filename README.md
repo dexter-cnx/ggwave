@@ -31,6 +31,21 @@ The Kotlin Android build uses compileSdk 36, minSdk 23, AGP 9.0.0 and Gradle 9.1
 
 Flutter Android CI is pinned to Flutter 3.47.0 and FRB 2.8.0 so compatibility is tested against the declared baseline rather than a floating stable SDK. FRB 2.8's plugin template is normalized to compileSdk 36 after integration so its generated Android scaffold remains compatible with the Flutter 3.47 AndroidX dependency set.
 
+### Run the Flutter validation app from VSCode
+
+For physical Android testing, you do not need to download or copy a CI APK.
+
+1. Open the repository root in VSCode.
+2. Connect an Android device with USB debugging enabled.
+3. Select the device in the Flutter device picker.
+4. Open **Run and Debug**.
+5. Select **ggwave Android Validation**.
+6. Press **F5**.
+
+The pre-launch task prepares FRB/native scaffolding, the Android example runner, microphone permission, and dependencies automatically. The example UI provides TX/RX roles, Audible Fast, Ultrasonic 12/15/18 kHz, payload entry, Start/Stop Listening, sent/received counters, and the last received payload.
+
+See `packages/ggwave_flutter/example/README.md` and `docs/ANDROID_VALIDATION.md` for the two-device acceptance procedure.
+
 ## Validation status
 
 Kotlin/Android is **build validated** on GitHub Actions as of 2026-09-02:
@@ -47,21 +62,7 @@ Artifacts from run `33600474569`:
 - `ggwave-kotlin-release` — release AAR, SHA-256 `0b34957c62ac752d1856584bf543007b53d59e981bfc4f1e3c5c2721d2c3606f`;
 - `ggwave-kotlin-validation-apk` — debug APK for physical two-device acoustic validation, SHA-256 `6ca205abe5c17150be07e1b59d1c6f23b41b96b9adb45f58728c7750cb737be1`.
 
-Flutter/Android is also **build validated** as of 2026-09-02. `Flutter Android #25`, run `33615793479`, passed the complete Flutter 3.47 gate:
-
-- Flutter 3.47.0 / Dart 3.12 baseline setup;
-- FRB codegen 2.8.0 installation from crates.io;
-- monorepo Dart/Flutter dependency resolution;
-- FRB/Cargokit integration and binding generation;
-- Dart format/analyze/test;
-- Flutter format/analyze/test;
-- Android example scaffold generation with compileSdk 36 normalization;
-- debug APK build;
-- artifact upload.
-
-Flutter artifact from run `33615793479`:
-
-- `ggwave-rs-flutter-android-example` — workflow artifact digest `sha256:76c6b2a47dc78e52aa98ecec6a3620cf1e692f746dcee4b8fd4729826240aaa0`.
+Flutter/Android is also **build validated**. Post-merge workflow `Flutter Android #32`, run `33622377147`, passed on `main`, including FRB generation, Dart/Flutter analysis and tests, Android example build, and artifact upload.
 
 Neither Android binding is yet **acoustic hardware validated**. Physical-device audible/ultrasonic roundtrip, permission, lifecycle, distance/orientation, and repeated start/stop acceptance remain tracked in `docs/ANDROID_VALIDATION.md`.
 
@@ -73,15 +74,9 @@ The Kotlin binding targets Android with `arm64-v8a`, `armeabi-v7a`, and `x86_64`
 
 ## Android validation app
 
-Build locally with:
+The Flutter validation example is the preferred local path for Flutter hardware testing because VSCode can deploy it directly to connected devices. The native Kotlin validation APK remains available for Kotlin/JNI-specific validation.
 
-```bash
-gradle -p examples/ggwave_kotlin_validation :app:assembleDebug
-```
-
-Or download the `ggwave-kotlin-validation-apk` artifact from a successful `Kotlin Android` workflow run.
-
-Install the generated APK on two Android devices, grant microphone permission on the receiving device, start listening, then test Audible and Ultrasonic 12/15/18 kHz in both directions. See [`docs/ANDROID_VALIDATION.md`](docs/ANDROID_VALIDATION.md) for the acceptance matrix.
+See [`docs/ANDROID_VALIDATION.md`](docs/ANDROID_VALIDATION.md) for the acceptance matrix.
 
 ## Release checks
 
