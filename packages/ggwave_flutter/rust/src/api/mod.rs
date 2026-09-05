@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use flutter_rust_bridge::frb;
 use ggwave_core::{Codec, PacketDeduper, Protocol, Tuning};
@@ -117,25 +117,31 @@ pub fn encode(data: Vec<u8>, protocol_id: i32, volume: i32) -> Result<Vec<f32>> 
 }
 
 #[frb]
-pub fn start_listening(_protocol_id: i32) -> Result<()> {
-    eprintln!("[GGWAVE_NATIVE] start_listening: requested");
+pub fn start_listening(protocol_id: i32) -> Result<()> {
+    eprintln!("[GGWAVE_NATIVE] start_listening: requested protocol_id={protocol_id}");
     stop_listening()?;
     LISTENING.store(true, Ordering::SeqCst);
 
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(32);
+    let (startup_tx, startup_rx) = std::sync::mpsc::sync_channel::<Result<String, String>>(1);
 
     thread::spawn(move || {
+        let fail_startup = |message: String| {
+            eprintln!("[GGWAVE_NATIVE][ERROR] {message}");
+            LISTENING.store(false, Ordering::SeqCst);
+            let _ = startup_tx.send(Err(message));
+        };
+
         let host = cpal::default_host();
         let Some(device) = host.default_input_device() else {
-            eprintln!("[GGWAVE_NATIVE][ERROR] listen: no default input device");
-            LISTENING.store(false, Ordering::SeqCst);
+            fail_startup("listen: no default input device".to_string());
             return;
         };
+        let device_name = device.name().unwrap_or_else(|_| "<unknown>".to_string());
         let supported = match device.default_input_config() {
             Ok(config) => config,
             Err(error) => {
-                eprintln!("[GGWAVE_NATIVE][ERROR] listen default_input_config: {error}");
-                LISTENING.store(false, Ordering::SeqCst);
+                fail_startup(format!("listen default_input_config: {error}"));
                 return;
             }
         };
@@ -143,7 +149,8 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
         let channels = config.channels.max(1) as usize;
         let sample_rate = config.sample_rate.0 as f32;
         eprintln!(
-            "[GGWAVE_NATIVE] listen config: rate={} channels={} format={:?}",
+            "[GGWAVE_NATIVE] listen config: device={} rate={} channels={} format={:?}",
+            device_name,
             sample_rate,
             channels,
             supported.sample_format()
@@ -151,8 +158,7 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
         let codec = match codec_for(sample_rate) {
             Ok(codec) => codec,
             Err(error) => {
-                eprintln!("[GGWAVE_NATIVE][ERROR] listen codec init: {error:#}");
-                LISTENING.store(false, Ordering::SeqCst);
+                fail_startup(format!("listen codec init: {error:#}"));
                 return;
             }
         };
@@ -161,11 +167,27 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
         unsafe impl Send for SerializedCodec {}
         let codec = Arc::new(Mutex::new(SerializedCodec(codec)));
         let deduper = Arc::new(Mutex::new(PacketDeduper::default()));
+        let callback_count = Arc::new(AtomicU32::new(0));
+        let callback_count_for_consume = Arc::clone(&callback_count);
 
         let consume = move |mono: Vec<f32>| {
             if !LISTENING.load(Ordering::Relaxed) {
                 return;
             }
+
+            let callback_index = callback_count_for_consume.fetch_add(1, Ordering::Relaxed) + 1;
+            if callback_index == 1 || callback_index % 200 == 0 {
+                let peak = mono
+                    .iter()
+                    .fold(0.0f32, |acc, sample| acc.max(sample.abs()));
+                eprintln!(
+                    "[GGWAVE_NATIVE] input activity: callback={} samples={} peak={:.4}",
+                    callback_index,
+                    mono.len(),
+                    peak
+                );
+            }
+
             let decoded = {
                 let _serial = CODEC_SERIAL.lock();
                 let guard = codec.lock();
@@ -227,8 +249,7 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
                 None,
             ),
             other => {
-                eprintln!("[GGWAVE_NATIVE][ERROR] unsupported input sample format: {other:?}");
-                LISTENING.store(false, Ordering::SeqCst);
+                fail_startup(format!("unsupported input sample format: {other:?}"));
                 return;
             }
         };
@@ -236,23 +257,42 @@ pub fn start_listening(_protocol_id: i32) -> Result<()> {
         let stream = match stream_result {
             Ok(stream) => stream,
             Err(error) => {
-                eprintln!("[GGWAVE_NATIVE][ERROR] build input stream: {error}");
-                LISTENING.store(false, Ordering::SeqCst);
+                fail_startup(format!("build input stream: {error}"));
                 return;
             }
         };
         if let Err(error) = stream.play() {
-            eprintln!("[GGWAVE_NATIVE][ERROR] input stream play: {error}");
-            LISTENING.store(false, Ordering::SeqCst);
+            fail_startup(format!("input stream play: {error}"));
             return;
         }
-        eprintln!("[GGWAVE_NATIVE] listening: active");
+
+        let startup_message = format!(
+            "device={} rate={} channels={} format={:?}",
+            device_name,
+            config.sample_rate.0,
+            channels,
+            supported.sample_format()
+        );
+        let _ = startup_tx.send(Ok(startup_message.clone()));
+        eprintln!("[GGWAVE_NATIVE] listening: active {startup_message}");
+
         while LISTENING.load(Ordering::Relaxed) {
             thread::sleep(Duration::from_millis(50));
         }
         drop(stream);
         eprintln!("[GGWAVE_NATIVE] listening: stopped");
     });
+
+    match startup_rx.recv_timeout(Duration::from_secs(3)) {
+        Ok(Ok(details)) => {
+            eprintln!("[GGWAVE_NATIVE] start_listening: confirmed {details}");
+        }
+        Ok(Err(message)) => return Err(anyhow!(message)),
+        Err(error) => {
+            LISTENING.store(false, Ordering::SeqCst);
+            return Err(anyhow!("listener startup did not complete within 3s: {error}"));
+        }
+    }
 
     thread::spawn(move || {
         let runtime = match tokio::runtime::Builder::new_current_thread()
