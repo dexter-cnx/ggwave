@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-EXAMPLE="$ROOT/packages/ggwave_flutter/example"
+PKG="$ROOT/packages/ggwave_flutter"
+EXAMPLE="$PKG/example"
 
 if ! command -v flutter >/dev/null 2>&1; then
   echo 'Flutter is required and must be available on PATH.' >&2
@@ -24,7 +25,32 @@ if ! command -v flutter_rust_bridge_codegen >/dev/null 2>&1; then
   cargo install flutter_rust_bridge_codegen --version 2.8.0 --locked
 fi
 
+# The example app depends on ggwave_rs_flutter as a local Flutter plugin.
+# A fresh repository intentionally does not commit generated native platform
+# scaffolds, so create only the plugin's Android directory in an isolated temp
+# project when it is absent. Never run `flutter create` over the real package.
+if [ ! -d "$PKG/android" ]; then
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+
+  flutter create \
+    --template=plugin \
+    --platforms=android \
+    --org io.github.dextercnx \
+    --project-name ggwave_rs_flutter \
+    "$tmp/ggwave_rs_flutter"
+
+  cp -R "$tmp/ggwave_rs_flutter/android" "$PKG/android"
+  rm -rf "$tmp"
+  trap - EXIT
+fi
+
 bash "$ROOT/tool/bootstrap_flutter_native.sh"
+
+if [ ! -d "$PKG/android" ]; then
+  echo "Flutter plugin Android scaffold is missing after bootstrap: $PKG/android" >&2
+  exit 1
+fi
 
 cd "$EXAMPLE"
 if [ ! -d android ]; then
