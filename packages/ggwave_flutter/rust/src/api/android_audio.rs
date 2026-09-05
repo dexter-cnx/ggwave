@@ -13,7 +13,7 @@ use anyhow::{anyhow, Result};
 use ggwave_core::PacketDeduper;
 use oboe::{
     AudioInputCallback, AudioInputStreamSafe, AudioStream, AudioStreamBase, AudioStreamBuilder,
-    DataCallbackResult, Error as OboeError, InputPreset, Mono, PerformanceMode,
+    AudioStreamSafe, DataCallbackResult, Error as OboeError, InputPreset, Mono, PerformanceMode,
     SampleRateConversionQuality, SharingMode,
 };
 
@@ -120,7 +120,10 @@ fn run_decoder(rx: Receiver<[f32; FRAMES_PER_CALLBACK]>, sample_rate: f32) {
             continue;
         }
 
-        eprintln!("[GGWAVE_NATIVE] Oboe decoded payload bytes={}", payload.len());
+        eprintln!(
+            "[GGWAVE_NATIVE] Oboe decoded payload bytes={}",
+            payload.len()
+        );
         if let Some(sink) = SINK.lock().as_ref() {
             if let Err(error) = sink.add(payload) {
                 eprintln!("[GGWAVE_NATIVE][ERROR] FRB sink add: {error:?}");
