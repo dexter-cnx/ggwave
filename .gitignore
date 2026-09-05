@@ -4,9 +4,16 @@ packages/ggwave_flutter/ios/
 packages/ggwave_flutter/macos/
 packages/ggwave_flutter/linux/
 packages/ggwave_flutter/windows/
+packages/ggwave_flutter/cargokit/
+packages/ggwave_flutter/rust_builder/
+packages/ggwave_flutter/integration_test/
+packages/ggwave_flutter/test_driver/
+packages/ggwave_flutter/.metadata
 packages/ggwave_flutter/example/android/
+packages/ggwave_flutter/example/.metadata
+packages/ggwave_flutter/example/pubspec.lock
 
-# Flutter/Dart build state.
+# Flutter/Dart build and tool state.
 .dart_tool/
 .buildlog/
 build/
@@ -14,3 +21,8 @@ build/
 **/build/
 **/.flutter-plugins
 **/.flutter-plugins-dependencies
+**/.packages
+
+# IDE / OS noise generated during local validation.
+.DS_Store
+**/.DS_Store
