@@ -21,9 +21,12 @@ restore_package_files() {
 }
 trap restore_package_files EXIT
 
+# Exact flutter_rust_bridge_codegen 2.8.0 uses
+# --no-enable-integration-test. The local prepare script normalizes any
+# globally installed FRB codegen to 2.8.0 before this bootstrap runs.
 flutter_rust_bridge_codegen integrate \
   --template plugin \
-  --no-integration-test
+  --no-enable-integration-test
 
 if [ -f android/build.gradle ]; then
   sed -i.bak -E \
