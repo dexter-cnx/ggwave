@@ -40,21 +40,30 @@ flutter_rust_bridge_codegen integrate \
   --template plugin \
   "$no_integration_test_flag"
 
+# Normalize only generated Android build compatibility knobs. Flutter 3.47 / AGP
+# builds Kotlin with JVM 17, while some generated plugin templates still leave
+# Java source/target compatibility at 1.8. Gradle rejects that mismatch.
 if [ -f android/build.gradle ]; then
   sed -i.bak -E \
     -e 's/compileSdkVersion[[:space:]]+33/compileSdkVersion 36/g' \
     -e 's/compileSdk[[:space:]]+33/compileSdk 36/g' \
+    -e 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' \
     android/build.gradle
   rm -f android/build.gradle.bak
 fi
 if [ -f android/build.gradle.kts ]; then
   sed -i.bak -E \
     -e 's/compileSdk[[:space:]]*=[[:space:]]*33/compileSdk = 36/g' \
+    -e 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' \
     android/build.gradle.kts
   rm -f android/build.gradle.kts.bak
 fi
 if grep -R -E 'compileSdk(Version)?[[:space:]=]+33' android --include='*.gradle' --include='*.gradle.kts'; then
   echo 'FRB Android scaffold still contains compileSdk 33 after normalization.' >&2
+  exit 1
+fi
+if grep -R -F 'JavaVersion.VERSION_1_8' android --include='*.gradle' --include='*.gradle.kts'; then
+  echo 'FRB Android scaffold still contains Java 1.8 after JVM 17 normalization.' >&2
   exit 1
 fi
 
@@ -67,4 +76,4 @@ trap - EXIT
 flutter pub get
 flutter_rust_bridge_codegen generate
 
-echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36, without changing the package manifest/public barrel or retaining template demo files.'
+echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36 and JVM 17, without changing the package manifest/public barrel or retaining template demo files.'
