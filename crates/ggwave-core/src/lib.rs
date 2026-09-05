@@ -20,9 +20,12 @@ pub const DEFAULT_ULTRASONIC_HZ: f32 = 12_000.0;
 ///
 /// The wrapper intentionally leaves ggwave's modulated waveform untouched.
 pub const DEFAULT_PRE_EMPHASIS: f32 = 1.0;
-/// Internal operating rate used by ggwave. Device input/output rates may differ;
-/// upstream ggwave resamples between those rates and this operating rate.
+/// Internal operating rate used by ggwave.
 pub const DEFAULT_OPERATING_SAMPLE_RATE: f32 = 48_000.0;
+/// FFT frame size used by upstream ggwave's default parameters.
+pub const DEFAULT_SAMPLES_PER_FRAME: f32 = 1024.0;
+/// ULTRASOUND_FAST occupies 96 FFT bins (16 bins × 2 bits × 3 bytes/chunk).
+const ULTRASOUND_FAST_BINS: i32 = 96;
 #[cfg(feature = "dedup")]
 /// Default duplicate-suppression window.
 pub const DEFAULT_DEDUP_WINDOW: Duration = Duration::from_millis(800);
@@ -97,10 +100,27 @@ impl Tuning {
     #[cfg(feature = "ultrasonic")]
     fn apply(self) -> Result<(), GgWaveError> {
         self.validate()?;
-        let hz = self.ultrasonic_hz.round() as i32;
+
+        // ggwave_rx/txProtocolSetFreqStart() takes an FFT-bin index, NOT Hz.
+        // At 48 kHz / 1024 samples one bin is 46.875 Hz, so 12 kHz is bin 256.
+        // Passing 12000 directly here puts the carrier thousands of bins beyond
+        // Nyquist and makes the ultrasonic protocol impossible to decode.
+        let bin_hz = DEFAULT_OPERATING_SAMPLE_RATE / DEFAULT_SAMPLES_PER_FRAME;
+        let bin = (self.ultrasonic_hz / bin_hz).round() as i32;
+        let nyquist_bin = (DEFAULT_SAMPLES_PER_FRAME as i32) / 2;
+        if bin < 1 || bin + ULTRASOUND_FAST_BINS > nyquist_bin {
+            return Err(GgWaveError::InvalidFrequency);
+        }
+
         unsafe {
-            ffi::ggwave_rxProtocolSetFreqStart(ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_FAST, hz);
-            ffi::ggwave_txProtocolSetFreqStart(ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_FAST, hz);
+            ffi::ggwave_rxProtocolSetFreqStart(
+                ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_FAST,
+                bin,
+            );
+            ffi::ggwave_txProtocolSetFreqStart(
+                ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_FAST,
+                bin,
+            );
         }
         Ok(())
     }
@@ -241,6 +261,13 @@ mod tests {
         let codec = Codec::new(Tuning::default()).unwrap();
         let wave = codec.encode(b"hello", Protocol::UltrasonicFast, 60).unwrap();
         assert!(!wave.is_empty());
+    }
+
+    #[test]
+    fn ultrasonic_12khz_maps_to_bin_256() {
+        let bin_hz = DEFAULT_OPERATING_SAMPLE_RATE / DEFAULT_SAMPLES_PER_FRAME;
+        let bin = (12_000.0 / bin_hz).round() as i32;
+        assert_eq!(bin, 256);
     }
 
     #[test]
