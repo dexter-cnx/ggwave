@@ -10,12 +10,6 @@ if ! command -v flutter_rust_bridge_codegen >/dev/null 2>&1; then
   exit 2
 fi
 
-# FRB 2.8 uses its built-in Cargokit integration path. This package is a
-# shareable Flutter plugin, and its Rust crate already lives at ./rust.
-#
-# FRB 2.8 currently mutates pubspec.yaml and the public package barrel during
-# `integrate`, even when integration tests are disabled. Preserve both files so
-# scaffold generation cannot change the package dependency graph or public API.
 original_pubspec="$(mktemp)"
 original_barrel="$(mktemp)"
 cp pubspec.yaml "$original_pubspec"
@@ -29,12 +23,8 @@ trap restore_package_files EXIT
 
 flutter_rust_bridge_codegen integrate \
   --template plugin \
-  --no-enable-integration-test
+  --no-integration-test
 
-# FRB 2.8's plugin template still compiles against Android API 33. Current
-# Flutter 3.47 AndroidX dependencies require API 34+, and project validation
-# standardizes on API 36. Only compileSdk is normalized; min/target SDK remain
-# controlled by the generated platform scaffold.
 if [ -f android/build.gradle ]; then
   sed -i.bak -E \
     -e 's/compileSdkVersion[[:space:]]+33/compileSdkVersion 36/g' \
@@ -53,9 +43,6 @@ if grep -R -E 'compileSdk(Version)?[[:space:]=]+33' android --include='*.gradle'
   exit 1
 fi
 
-# The FRB 2.8 plugin template also overlays demo/integration-test files that
-# reference its own `simple` API. ggwave_rs_flutter already has a custom Rust
-# API and tests, so these template-only artifacts must not become package API.
 rm -f rust/src/api/simple.rs
 rm -f lib/src/rust/api/simple.dart
 rm -rf test_driver integration_test
