@@ -17,9 +17,7 @@ use oboe::{
     InputPreset, Mono, PerformanceMode, SampleRateConversionQuality, SharingMode, Usage,
 };
 
-use super::{
-    current_tuning, CODEC_SERIAL, ENCODE_SAMPLE_RATE, LISTENING, PLAYBACK_TAIL_MS, SINK,
-};
+use super::{current_tuning, CODEC_SERIAL, ENCODE_SAMPLE_RATE, LISTENING, PLAYBACK_TAIL_MS, SINK};
 
 const FRAMES_PER_CALLBACK: usize = 1024;
 const AUDIO_QUEUE_DEPTH: usize = 8;
@@ -121,11 +119,7 @@ impl AudioOutputCallback for OutputCallback {
     }
 }
 
-fn run_decoder(
-    rx: Receiver<[f32; FRAMES_PER_CALLBACK]>,
-    sample_rate: f32,
-    protocol: Protocol,
-) {
+fn run_decoder(rx: Receiver<[f32; FRAMES_PER_CALLBACK]>, sample_rate: f32, protocol: Protocol) {
     let codec = {
         let _serial = CODEC_SERIAL.lock();
         Codec::with_sample_rate_and_rx_protocol(current_tuning(), sample_rate, protocol)
@@ -282,8 +276,7 @@ pub(super) fn play_waveform(mut waveform: Vec<f32>) -> Result<()> {
         bail!("waveform is empty");
     }
 
-    let tail_samples =
-        ((PLAYBACK_TAIL_MS as f32 / 1000.0) * ENCODE_SAMPLE_RATE).round() as usize;
+    let tail_samples = ((PLAYBACK_TAIL_MS as f32 / 1000.0) * ENCODE_SAMPLE_RATE).round() as usize;
     let payload_samples = waveform.len();
     waveform.resize(payload_samples + tail_samples, 0.0);
     let playback_ms = ((waveform.len() as f64 / ENCODE_SAMPLE_RATE as f64) * 1000.0).ceil() as u64;
