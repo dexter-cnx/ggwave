@@ -11,7 +11,6 @@ packages/ggwave_flutter/test_driver/
 packages/ggwave_flutter/.metadata
 packages/ggwave_flutter/example/android/
 packages/ggwave_flutter/example/.metadata
-packages/ggwave_flutter/example/pubspec.lock
 
 # Flutter/Dart build and tool state.
 .dart_tool/
@@ -23,9 +22,16 @@ build/
 **/.flutter-plugins-dependencies
 **/.packages
 
+# Package lockfiles are not source-of-truth for reusable Dart/Flutter packages.
+# Keep the example app lockfile tracked for reproducible validation builds.
+packages/ggwave_dart/pubspec.lock
+packages/ggwave_flutter/pubspec.lock
+!packages/ggwave_flutter/example/pubspec.lock
+
 # Rust/Cargo build state.
 target/
 **/target/
+packages/ggwave_flutter/rust/Cargo.lock
 
 # Gradle/Android local build state. Keep source-controlled Gradle wrapper files,
 # but ignore generated caches and machine-local SDK configuration.
