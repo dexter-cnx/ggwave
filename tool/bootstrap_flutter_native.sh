@@ -14,12 +14,21 @@ original_pubspec="$(mktemp)"
 original_barrel="$(mktemp)"
 cp pubspec.yaml "$original_pubspec"
 cp lib/ggwave_rs_flutter.dart "$original_barrel"
+
 restore_package_files() {
   cp "$original_pubspec" pubspec.yaml
   cp "$original_barrel" lib/ggwave_rs_flutter.dart
+}
+
+cleanup_temp_files() {
   rm -f "$original_pubspec" "$original_barrel"
 }
-trap restore_package_files EXIT
+
+restore_and_cleanup() {
+  restore_package_files
+  cleanup_temp_files
+}
+trap restore_and_cleanup EXIT
 
 # FRB 2.8.0 distributions in the wild expose one of two spellings for
 # disabling the integration-test template. Detect the actual CLI contract
@@ -110,9 +119,31 @@ rm -f rust/src/api/simple.rs
 rm -f lib/src/rust/api/simple.dart
 rm -rf test_driver integration_test
 
+# FRB integrate mutates the package manifest/barrel. Restore the package-owned
+# versions before dependency resolution, but keep the temp copies alive because
+# FRB generate may mutate the barrel again.
 restore_package_files
-trap - EXIT
 flutter pub get
 flutter_rust_bridge_codegen generate
 
-echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36, JVM 17, AGP-compatible manifest, and CPAL Android context bootstrap.'
+# FRB 2.8 generate can append template exports such as api/simple.dart even
+# after the template source was removed. The public package barrel is owned by
+# this repository, so restore it after generation and remove any stale template
+# Dart file. This keeps fresh clones/builds deterministic.
+restore_package_files
+rm -f lib/src/rust/api/simple.dart
+
+# Fail fast if codegen did not produce the runtime files required by transport.
+if [ ! -f lib/src/rust/frb_generated.dart ]; then
+  echo 'FRB codegen did not produce lib/src/rust/frb_generated.dart.' >&2
+  exit 1
+fi
+if [ ! -f rust/src/frb_generated.rs ]; then
+  echo 'FRB codegen did not produce rust/src/frb_generated.rs.' >&2
+  exit 1
+fi
+
+cleanup_temp_files
+trap - EXIT
+
+echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36, JVM 17, AGP-compatible manifest, CPAL Android context bootstrap, and a preserved package-owned Dart barrel.'
