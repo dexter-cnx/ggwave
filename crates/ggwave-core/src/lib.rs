@@ -16,8 +16,10 @@ use thiserror::Error;
 pub const MAX_PAYLOAD: usize = 140;
 /// Default ultrasonic start frequency in Hz.
 pub const DEFAULT_ULTRASONIC_HZ: f32 = 12_000.0;
-/// Default ultrasonic pre-emphasis gain.
-pub const DEFAULT_PRE_EMPHASIS: f32 = 1.8;
+/// Legacy ultrasonic pre-emphasis setting retained for API compatibility.
+///
+/// The wrapper intentionally leaves ggwave's modulated waveform untouched.
+pub const DEFAULT_PRE_EMPHASIS: f32 = 1.0;
 /// Internal operating rate used by ggwave. Device input/output rates may differ;
 /// upstream ggwave resamples between those rates and this operating rate.
 pub const DEFAULT_OPERATING_SAMPLE_RATE: f32 = 48_000.0;
@@ -70,6 +72,8 @@ impl Protocol {
 #[derive(Debug, Clone, Copy)]
 pub struct Tuning {
     pub ultrasonic_hz: f32,
+    /// Retained for source compatibility. The encoder does not post-process the
+    /// waveform because doing so changes the modem signal produced by ggwave.
     pub ultrasonic_pre_emphasis: f32,
 }
 
@@ -156,12 +160,7 @@ impl Codec {
             .inner
             .encode(payload, protocol.native(), volume)
             .map_err(|e| GgWaveError::Codec(e.to_string()))?;
-        let mut samples = bytes_to_f32(&raw);
-        #[cfg(feature = "ultrasonic")]
-        if protocol.is_ultrasonic() {
-            pre_emphasis(&mut samples, self.tuning.ultrasonic_pre_emphasis);
-        }
-        Ok(samples)
+        Ok(bytes_to_f32(&raw))
     }
 
     pub fn decode(&self, samples: &[f32]) -> Result<Option<Vec<u8>>, GgWaveError> {
@@ -211,16 +210,6 @@ impl PacketDeduper {
     }
 }
 
-#[cfg(feature = "ultrasonic")]
-fn pre_emphasis(samples: &mut [f32], gain: f32) {
-    let mut previous = 0.0f32;
-    for sample in samples {
-        let input = *sample;
-        *sample = ((input - 0.85 * previous) * gain).clamp(-1.0, 1.0);
-        previous = input;
-    }
-}
-
 fn bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
     bytes
         .chunks_exact(4)
@@ -244,6 +233,13 @@ mod tests {
     fn audible_encode_smoke() {
         let codec = Codec::new(Tuning::default()).unwrap();
         let wave = codec.encode(b"hello", Protocol::AudibleFast, 60).unwrap();
+        assert!(!wave.is_empty());
+    }
+
+    #[test]
+    fn ultrasonic_encode_smoke() {
+        let codec = Codec::new(Tuning::default()).unwrap();
+        let wave = codec.encode(b"hello", Protocol::UltrasonicFast, 60).unwrap();
         assert!(!wave.is_empty());
     }
 
