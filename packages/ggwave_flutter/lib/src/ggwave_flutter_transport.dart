@@ -8,8 +8,7 @@ import 'rust/frb_generated.dart' as frb;
 
 /// Rust-backed Flutter implementation of [GgWaveTransport].
 class GgWaveFlutterTransport implements GgWaveTransport {
-  GgWaveFlutterTransport({GgWaveTuning tuning = const GgWaveTuning()})
-      : _tuning = tuning;
+  GgWaveFlutterTransport({this._tuning = const GgWaveTuning()});
 
   final GgWaveTuning _tuning;
   final StreamController<Uint8List> _controller =
@@ -32,9 +31,9 @@ class GgWaveFlutterTransport implements GgWaveTransport {
 
     await native.initRust();
     await native.setUltrasonicFreq(freqStart: _tuning.ultrasonicHz);
-    _sub = native
-        .createOnMessageStream()
-        .listen((e) => _controller.add(Uint8List.fromList(e)));
+    _sub = native.createOnMessageStream().listen(
+      (e) => _controller.add(Uint8List.fromList(e)),
+    );
     _initialized = true;
   }
 
@@ -66,8 +65,7 @@ class GgWaveFlutterTransport implements GgWaveTransport {
   @override
   Future<void> startListening({
     GgWaveProtocol protocol = GgWaveProtocol.audibleFast,
-  }) =>
-      native.startListening(protocolId: protocol.id);
+  }) => native.startListening(protocolId: protocol.id);
 
   @override
   Future<void> stopListening() => native.stopListening();

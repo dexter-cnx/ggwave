@@ -6,20 +6,18 @@ import 'package:native_toolchain_rust/native_toolchain_rust.dart';
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
-    await RustBuilder(
+    await const RustBuilder(
       assetName: 'lib/src/rust/frb_generated.dart',
     ).run(input: input, output: output);
 
-    if (input.config.buildCodeAssets && input.config.code.targetOS == OS.android) {
+    if (input.config.buildCodeAssets &&
+        input.config.code.targetOS == OS.android) {
       _bundleAndroidCxxRuntime(input, output);
     }
   });
 }
 
-void _bundleAndroidCxxRuntime(
-  BuildInput input,
-  BuildOutputBuilder output,
-) {
+void _bundleAndroidCxxRuntime(BuildInput input, BuildOutputBuilder output) {
   final codeConfig = input.config.code;
   final compiler = codeConfig.cCompiler?.compiler;
   if (compiler == null) {
@@ -34,17 +32,15 @@ void _bundleAndroidCxxRuntime(
     'arm64' => 'aarch64-linux-android',
     'x64' => 'x86_64-linux-android',
     final architecture => throw UnsupportedError(
-        'Unsupported Android architecture for libc++_shared.so: $architecture',
-      ),
+      'Unsupported Android architecture for libc++_shared.so: $architecture',
+    ),
   };
 
   final runtime = File(
     '${toolchainRoot.path}/sysroot/usr/lib/$targetTriple/libc++_shared.so',
   );
   if (!runtime.existsSync()) {
-    throw StateError(
-      'Android C++ runtime not found at ${runtime.path}.',
-    );
+    throw StateError('Android C++ runtime not found at ${runtime.path}.');
   }
 
   output.dependencies.add(runtime.uri);

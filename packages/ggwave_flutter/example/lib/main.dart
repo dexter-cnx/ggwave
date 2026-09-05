@@ -66,10 +66,7 @@ class _ValidationPageState extends State<ValidationPage> {
 
   void _logError(String stage, Object error, StackTrace stackTrace) {
     debugPrint('[GGWAVE][ERROR][$stage] $error');
-    debugPrintStack(
-      label: '[GGWAVE][STACK][$stage]',
-      stackTrace: stackTrace,
-    );
+    debugPrintStack(label: '[GGWAVE][STACK][$stage]', stackTrace: stackTrace);
   }
 
   @override
@@ -299,9 +296,7 @@ class _ValidationPageState extends State<ValidationPage> {
                     ? null
                     : (_listening ? _stopListening : _startListening),
                 icon: Icon(_listening ? Icons.stop : Icons.mic),
-                label: Text(
-                  _listening ? 'Stop Listening' : 'Start Listening',
-                ),
+                label: Text(_listening ? 'Stop Listening' : 'Start Listening'),
               ),
             ],
             const SizedBox(height: 24),
