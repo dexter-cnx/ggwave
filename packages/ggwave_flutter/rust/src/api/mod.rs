@@ -9,11 +9,13 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use flutter_rust_bridge::{frb, StreamSink};
+use flutter_rust_bridge::frb;
 use ggwave_core::{Codec, PacketDeduper, Protocol, Tuning};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
+
+use crate::frb_generated::StreamSink;
 
 static SINK: Lazy<Mutex<Option<StreamSink<Vec<u8>>>>> = Lazy::new(|| Mutex::new(None));
 static FREQ_BITS: AtomicU32 = AtomicU32::new(12_000.0f32.to_bits());
