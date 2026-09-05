@@ -36,10 +36,10 @@ frb-install: ## Install the pinned flutter_rust_bridge_codegen CLI
 frb-generate: ## Generate FRB Dart/Rust bindings only
 	cd $(FLUTTER_PKG) && flutter_rust_bridge_codegen generate
 
-bootstrap: doctor deps ## Generate FRB bindings and native Flutter scaffolds reproducibly
+bootstrap: doctor ## Generate FRB bindings and native Flutter scaffolds reproducibly
 	bash $(ROOT)/tool/bootstrap_flutter_native.sh
 
-prepare-android: bootstrap ## Prepare the local Android validation runner
+prepare-android: doctor ## Prepare the local Android validation runner in scaffold-first order
 	bash $(ROOT)/tool/prepare_flutter_android_validation.sh
 
 clean: ## Clean Flutter build outputs without deleting generated FRB bindings
@@ -66,7 +66,7 @@ test: ## Run Dart and Flutter tests
 	cd $(FLUTTER_PKG) && flutter test
 	cd $(FLUTTER_EXAMPLE) && flutter test
 
-preflight: bootstrap analyze test ## Reproduce the local/CI generation + analysis + test gate
+preflight: prepare-android analyze test ## Reproduce the local/CI generation + analysis + test gate
 	@echo "Preflight passed"
 
 run-android: prepare-android ## Bootstrap then run Android example; DEVICE=<adb id> is required
