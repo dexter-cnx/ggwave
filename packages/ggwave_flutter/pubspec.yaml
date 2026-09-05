@@ -13,21 +13,9 @@ dependencies:
     sdk: flutter
   flutter_rust_bridge: 2.8.0
   ggwave_dart: ^1.2.0
+  hooks: ^2.1.0
+  native_toolchain_rust: ^1.0.6
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
-
-flutter:
-  plugin:
-    platforms:
-      android:
-        ffiPlugin: true
-      ios:
-        ffiPlugin: true
-      macos:
-        ffiPlugin: true
-      windows:
-        ffiPlugin: true
-      linux:
-        ffiPlugin: true
