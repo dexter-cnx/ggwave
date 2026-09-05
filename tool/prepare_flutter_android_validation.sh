@@ -6,6 +6,9 @@ DART_PKG="$ROOT/packages/ggwave_dart"
 PKG="$ROOT/packages/ggwave_flutter"
 EXAMPLE="$PKG/example"
 FRB_VERSION="2.8.0"
+CARGO_INSTALL_ROOT="${CARGO_HOME:-$HOME/.cargo}"
+FRB_BIN_DIR="$CARGO_INSTALL_ROOT/bin"
+FRB_BIN="$FRB_BIN_DIR/flutter_rust_bridge_codegen"
 
 if ! command -v flutter >/dev/null 2>&1; then
   echo 'Flutter is required and must be available on PATH.' >&2
@@ -24,22 +27,47 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 2
 fi
 
-install_frb_codegen() {
-  echo "Installing flutter_rust_bridge_codegen $FRB_VERSION..."
-  cargo install flutter_rust_bridge_codegen --version "$FRB_VERSION" --locked --force
+frb_version() {
+  "$FRB_BIN" --version 2>/dev/null || true
 }
 
-if ! command -v flutter_rust_bridge_codegen >/dev/null 2>&1; then
-  install_frb_codegen
-else
-  installed_frb="$(flutter_rust_bridge_codegen --version 2>/dev/null || true)"
-  if [[ "$installed_frb" != *"$FRB_VERSION"* ]]; then
-    echo "Found incompatible FRB codegen: ${installed_frb:-unknown}. Expected $FRB_VERSION."
-    install_frb_codegen
-  fi
+install_frb_codegen() {
+  echo "Installing flutter_rust_bridge_codegen $FRB_VERSION into $CARGO_INSTALL_ROOT..."
+  cargo install flutter_rust_bridge_codegen \
+    --version "$FRB_VERSION" \
+    --locked \
+    --force \
+    --root "$CARGO_INSTALL_ROOT"
+}
+
+installed_frb=""
+if [ -x "$FRB_BIN" ]; then
+  installed_frb="$(frb_version)"
 fi
 
-echo "Using $(flutter_rust_bridge_codegen --version)"
+if [[ "$installed_frb" != *"$FRB_VERSION"* ]]; then
+  if [ -n "$installed_frb" ]; then
+    echo "Found incompatible FRB codegen at $FRB_BIN: $installed_frb. Expected $FRB_VERSION."
+  elif command -v flutter_rust_bridge_codegen >/dev/null 2>&1; then
+    path_frb="$(command -v flutter_rust_bridge_codegen)"
+    path_version="$(flutter_rust_bridge_codegen --version 2>/dev/null || true)"
+    echo "Ignoring FRB codegen from PATH at $path_frb (${path_version:-unknown}); installing the pinned binary."
+  fi
+  install_frb_codegen
+  installed_frb="$(frb_version)"
+fi
+
+if [[ "$installed_frb" != *"$FRB_VERSION"* ]]; then
+  echo "Pinned FRB codegen verification failed at $FRB_BIN: ${installed_frb:-unknown}" >&2
+  exit 1
+fi
+
+# Use the exact Cargo install root selected above for all subsequent scripts,
+# even if an incompatible system/custom-root FRB binary appears earlier on the
+# caller's PATH.
+export PATH="$FRB_BIN_DIR:$PATH"
+
+echo "Using $FRB_BIN ($installed_frb)"
 
 ensure_plugin_android_scaffold() {
   if [ -d "$PKG/android" ]; then
