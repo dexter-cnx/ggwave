@@ -121,15 +121,16 @@ jobs:
           dart analyze
           dart test
 
-      - name: Analyze and test Flutter package
+      - name: Analyze and test Flutter package and examples
         run: |
           cd packages/ggwave_flutter
           dart format --output=none --set-exit-if-changed lib test
-          (cd example && dart format --output=none --set-exit-if-changed lib)
+          (cd example && dart format --output=none --set-exit-if-changed lib test)
           flutter analyze
           flutter test
+          (cd example && flutter test)
 
-      - name: Build Android example APK
+      - name: Build Android example APKs
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
@@ -137,18 +138,26 @@ jobs:
           cd packages/ggwave_flutter/example
           original_pubspec="$(mktemp)"
           original_main="$(mktemp)"
+          original_tictactoe="$(mktemp)"
           cp pubspec.yaml "$original_pubspec"
           cp lib/main.dart "$original_main"
+          cp lib/tic_tac_toe.dart "$original_tictactoe"
           flutter create --platforms=android --project-name ggwave_rs_flutter_example .
           cp "$original_pubspec" pubspec.yaml
           cp "$original_main" lib/main.dart
-          rm -f "$original_pubspec" "$original_main"
+          cp "$original_tictactoe" lib/tic_tac_toe.dart
+          rm -f "$original_pubspec" "$original_main" "$original_tictactoe"
           flutter pub get
-          flutter build apk --debug
+          flutter build apk --debug --target lib/main.dart
+          cp build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/ggwave-validation-debug.apk
+          flutter build apk --debug --target lib/tic_tac_toe.dart
+          cp build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/ggwave-tic-tac-toe-debug.apk
 
-      - name: Upload Flutter Android example APK
+      - name: Upload Flutter Android example APKs
         uses: actions/upload-artifact@v4
         with:
-          name: ggwave-rs-flutter-android-example
-          path: packages/ggwave_flutter/example/build/app/outputs/flutter-apk/*.apk
+          name: ggwave-rs-flutter-android-examples
+          path: |
+            packages/ggwave_flutter/example/build/app/outputs/flutter-apk/ggwave-validation-debug.apk
+            packages/ggwave_flutter/example/build/app/outputs/flutter-apk/ggwave-tic-tac-toe-debug.apk
           if-no-files-found: error

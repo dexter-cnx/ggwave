@@ -8,6 +8,14 @@
       "cwd": "${workspaceFolder}/packages/ggwave_flutter/example",
       "program": "${workspaceFolder}/packages/ggwave_flutter/example/lib/main.dart",
       "preLaunchTask": "Prepare ggwave Android validation"
+    },
+    {
+      "name": "ggwave Tic-Tac-Toe Demo",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "${workspaceFolder}/packages/ggwave_flutter/example",
+      "program": "${workspaceFolder}/packages/ggwave_flutter/example/lib/tic_tac_toe.dart",
+      "preLaunchTask": "Prepare ggwave Android validation"
     }
   ]
 }

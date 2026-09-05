@@ -1,17 +1,22 @@
-# ggwave_rs_flutter Android validation example
+# ggwave_rs_flutter examples
 
-This example is the physical Android acoustic-validation UI for `ggwave_rs_flutter`.
+This Flutter example project contains two physical-device entrypoints built on the public `ggwave_rs_flutter` API.
 
-## VSCode workflow
+## 1. Android validation UI
 
-From the repository root:
+Use this entrypoint for low-level acoustic validation:
 
-1. Open the repository in VSCode.
-2. Connect a physical Android device with USB debugging enabled.
-3. Select the device in the Flutter device picker.
-4. Open **Run and Debug**.
-5. Select **ggwave Android Validation**.
-6. Press **F5**.
+```text
+lib/main.dart
+```
+
+From the repository root in VSCode:
+
+1. Connect a physical Android device with USB debugging enabled.
+2. Select the device in the Flutter device picker.
+3. Open **Run and Debug**.
+4. Select **ggwave Android Validation**.
+5. Press **F5**.
 
 The launch configuration runs `tool/prepare_flutter_android_validation.sh` first. The task:
 
@@ -22,19 +27,27 @@ The launch configuration runs `tool/prepare_flutter_android_validation.sh` first
 - adds `android.permission.RECORD_AUDIO` to the generated example manifest;
 - resolves Flutter dependencies.
 
-VSCode then runs `example/lib/main.dart` directly on the selected device. There is no need to download or copy a CI APK.
+The validation UI supports TX/RX roles, Audible Fast, Ultrasonic Fast at 12/15/18 kHz, editable payloads, runtime microphone permission, listening controls, counters, and the last received payload.
 
-## Validation UI
+## 2. Tic-Tac-Toe 1 ↔ 1 reference demo
 
-The app supports:
+Use this entrypoint to demonstrate interactive peer-to-peer application traffic over ggwave:
 
-- **TX / Send** and **RX / Listen** roles;
-- Audible Fast;
-- Ultrasonic Fast at 12 kHz, 15 kHz, and 18 kHz;
-- editable payloads up to 140 bytes;
-- runtime microphone permission;
-- Start/Stop Listening;
-- sent/received counters;
-- last received payload and status.
+```text
+lib/tic_tac_toe.dart
+```
 
-Use two physical Android devices. Select the same protocol/frequency on both devices, set one to TX and the other to RX, test the transmission, then reverse roles.
+In VSCode select **ggwave Tic-Tac-Toe Demo** and press **F5** on each of two physical devices.
+
+Suggested flow:
+
+1. Device A taps **Host as X**. It starts listening and acoustically announces a short session.
+2. Device B taps **Join as O**. It listens for the host, joins the session, and sends a ready packet.
+3. Players take turns. Each move sends a compact versioned board-state packet over Audible Fast.
+4. Duplicate/out-of-order packets from the same sender are ignored using sender + sequence tracking.
+5. A received board update is accepted only when it is a valid one-cell transition for the remote player's mark.
+6. **New round** resets the board while keeping the same acoustic session.
+
+The game-specific wire format is intentionally located only under `example/lib/tic_tac_toe_protocol.dart`. It is not part of `ggwave-core`, `ggwave_dart`, or the public Flutter package API.
+
+The current demo uses Audible Fast deliberately: its purpose is to show a small, reliable 1 ↔ 1 application protocol. Frequency/tuning validation remains the responsibility of the Android validation UI.
