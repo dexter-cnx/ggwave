@@ -18,6 +18,9 @@ pub const MAX_PAYLOAD: usize = 140;
 pub const DEFAULT_ULTRASONIC_HZ: f32 = 12_000.0;
 /// Default ultrasonic pre-emphasis gain.
 pub const DEFAULT_PRE_EMPHASIS: f32 = 1.8;
+/// Internal operating rate used by ggwave. Device input/output rates may differ;
+/// upstream ggwave resamples between those rates and this operating rate.
+pub const DEFAULT_OPERATING_SAMPLE_RATE: f32 = 48_000.0;
 #[cfg(feature = "dedup")]
 /// Default duplicate-suppression window.
 pub const DEFAULT_DEDUP_WINDOW: Duration = Duration::from_millis(800);
@@ -112,9 +115,15 @@ pub struct Codec {
 
 impl Codec {
     pub fn new(tuning: Tuning) -> Result<Self, GgWaveError> {
-        Self::with_sample_rate(tuning, 48_000.0)
+        Self::with_sample_rate(tuning, DEFAULT_OPERATING_SAMPLE_RATE)
     }
 
+    /// Creates a codec for a device whose capture/playback rate is
+    /// [sample_rate], while keeping ggwave's internal operating rate at 48 kHz.
+    ///
+    /// This distinction is important on Android where devices commonly expose
+    /// 44.1 kHz input. ggwave performs the required resampling internally when
+    /// `sampleRateInp`/`sampleRateOut` differ from `sampleRate`.
     pub fn with_sample_rate(tuning: Tuning, sample_rate: f32) -> Result<Self, GgWaveError> {
         if sample_rate <= 0.0 {
             return Err(GgWaveError::InvalidSampleRate);
@@ -123,7 +132,7 @@ impl Codec {
         let mut p = default_parameters();
         p.sampleRateInp = sample_rate;
         p.sampleRateOut = sample_rate;
-        p.sampleRate = sample_rate;
+        p.sampleRate = DEFAULT_OPERATING_SAMPLE_RATE;
         p.sampleFormatInp = SampleFormat::GGWAVE_SAMPLE_FORMAT_F32;
         p.sampleFormatOut = SampleFormat::GGWAVE_SAMPLE_FORMAT_F32;
         let inner = GgWave::new(p).map_err(|e| GgWaveError::Codec(e.to_string()))?;
@@ -242,5 +251,11 @@ mod tests {
     fn protocol_ids_are_stable() {
         assert_eq!(Protocol::AudibleFast as i32, 1);
         assert_eq!(Protocol::UltrasonicFast as i32, 5);
+    }
+
+    #[test]
+    fn accepts_common_android_input_rate() {
+        let codec = Codec::with_sample_rate(Tuning::default(), 44_100.0);
+        assert!(codec.is_ok());
     }
 }
