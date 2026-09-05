@@ -43,6 +43,7 @@ fn codec_for(sample_rate: f32) -> Result<Codec> {
     Ok(Codec::with_sample_rate(current_tuning(), sample_rate)?)
 }
 
+#[cfg(not(target_os = "android"))]
 fn resample_linear(samples: &[f32], source_rate: f32, target_rate: f32) -> Vec<f32> {
     if samples.is_empty() || source_rate <= 0.0 || target_rate <= 0.0 {
         return samples.to_vec();
@@ -169,7 +170,10 @@ pub fn start_listening(protocol_id: i32) -> Result<()> {
 
 #[cfg(not(target_os = "android"))]
 fn start_listening_cpal(protocol_id: i32) -> Result<()> {
-    eprintln!("[GGWAVE_NATIVE] CPAL listen: requested protocol_id={protocol_id}");
+    let protocol = Protocol::from_app_id(protocol_id);
+    eprintln!(
+        "[GGWAVE_NATIVE] CPAL listen: requested protocol_id={protocol_id} protocol={protocol:?}"
+    );
     stop_listening()?;
     LISTENING.store(true, Ordering::SeqCst);
 
@@ -208,7 +212,11 @@ fn start_listening_cpal(protocol_id: i32) -> Result<()> {
             ENCODE_SAMPLE_RATE
         );
 
-        let codec = match codec_for(sample_rate) {
+        let codec = {
+            let _serial = CODEC_SERIAL.lock();
+            Codec::with_sample_rate_and_rx_protocol(current_tuning(), sample_rate, protocol)
+        };
+        let codec = match codec {
             Ok(codec) => codec,
             Err(error) => {
                 fail_startup(format!("listen codec init: {error:#}"));
@@ -368,6 +376,19 @@ pub fn stop_listening() -> Result<()> {
 
 #[frb]
 pub fn play_waveform(waveform: Vec<f32>) -> Result<()> {
+    #[cfg(target_os = "android")]
+    {
+        return android_audio::play_waveform(waveform);
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        play_waveform_cpal(waveform)
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn play_waveform_cpal(waveform: Vec<f32>) -> Result<()> {
     eprintln!("[GGWAVE_NATIVE] play_waveform: samples={}", waveform.len());
     if waveform.is_empty() {
         eprintln!("[GGWAVE_NATIVE][ERROR] play_waveform: waveform is empty");
