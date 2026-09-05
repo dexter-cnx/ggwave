@@ -99,6 +99,13 @@ if [ ! -d android ]; then
   rm -f "$original_pubspec" "$original_main"
 fi
 
+# The Android runner is ephemeral. `flutter create` also writes a stock widget
+# test that references MyApp and an analysis_options.yaml that depends on
+# flutter_lints. This repository restores its own main.dart/pubspec.yaml, so
+# retaining those template files only creates false VSCode analyzer errors.
+rm -f test/widget_test.dart analysis_options.yaml
+rmdir test 2>/dev/null || true
+
 manifest="android/app/src/main/AndroidManifest.xml"
 python3 - "$manifest" <<'PY'
 from pathlib import Path
