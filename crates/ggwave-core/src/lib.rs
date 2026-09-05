@@ -135,14 +135,8 @@ impl Tuning {
         }
 
         unsafe {
-            ffi::ggwave_rxProtocolSetFreqStart(
-                ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_FAST,
-                bin,
-            );
-            ffi::ggwave_txProtocolSetFreqStart(
-                ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_FAST,
-                bin,
-            );
+            ffi::ggwave_rxProtocolSetFreqStart(ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_FAST, bin);
+            ffi::ggwave_txProtocolSetFreqStart(ProtocolId::GGWAVE_PROTOCOL_ULTRASOUND_FAST, bin);
         }
         Ok(())
     }
@@ -323,7 +317,9 @@ mod tests {
     #[test]
     fn ultrasonic_encode_smoke() {
         let codec = Codec::new(Tuning::default()).unwrap();
-        let wave = codec.encode(b"hello", Protocol::UltrasonicFast, 60).unwrap();
+        let wave = codec
+            .encode(b"hello", Protocol::UltrasonicFast, 60)
+            .unwrap();
         assert!(!wave.is_empty());
     }
 
