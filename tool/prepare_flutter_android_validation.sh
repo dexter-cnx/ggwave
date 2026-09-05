@@ -5,31 +5,69 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DART_PKG="$ROOT/packages/ggwave_dart"
 PKG="$ROOT/packages/ggwave_flutter"
 EXAMPLE="$PKG/example"
+FRB_VERSION="2.8.0"
+CARGO_INSTALL_ROOT="${CARGO_HOME:-$HOME/.cargo}"
+FRB_BIN_DIR="$CARGO_INSTALL_ROOT/bin"
+FRB_BIN="$FRB_BIN_DIR/flutter_rust_bridge_codegen"
 
 if ! command -v flutter >/dev/null 2>&1; then
   echo 'Flutter is required and must be available on PATH.' >&2
   exit 2
 fi
-
 if ! command -v dart >/dev/null 2>&1; then
   echo 'Dart is required and must be available on PATH.' >&2
   exit 2
 fi
-
 if ! command -v cargo >/dev/null 2>&1; then
   echo 'Rust/Cargo is required and must be available on PATH.' >&2
   exit 2
 fi
-
 if ! command -v python3 >/dev/null 2>&1; then
   echo 'python3 is required to patch the generated Android manifest.' >&2
   exit 2
 fi
 
-if ! command -v flutter_rust_bridge_codegen >/dev/null 2>&1; then
-  echo 'Installing flutter_rust_bridge_codegen 2.8.0...'
-  cargo install flutter_rust_bridge_codegen --version 2.8.0 --locked
+frb_version() {
+  "$FRB_BIN" --version 2>/dev/null || true
+}
+
+install_frb_codegen() {
+  echo "Installing flutter_rust_bridge_codegen $FRB_VERSION into $CARGO_INSTALL_ROOT..."
+  cargo install flutter_rust_bridge_codegen \
+    --version "$FRB_VERSION" \
+    --locked \
+    --force \
+    --root "$CARGO_INSTALL_ROOT"
+}
+
+installed_frb=""
+if [ -x "$FRB_BIN" ]; then
+  installed_frb="$(frb_version)"
 fi
+
+if [[ "$installed_frb" != *"$FRB_VERSION"* ]]; then
+  if [ -n "$installed_frb" ]; then
+    echo "Found incompatible FRB codegen at $FRB_BIN: $installed_frb. Expected $FRB_VERSION."
+  elif command -v flutter_rust_bridge_codegen >/dev/null 2>&1; then
+    path_frb="$(command -v flutter_rust_bridge_codegen)"
+    path_version="$(flutter_rust_bridge_codegen --version 2>/dev/null || true)"
+    echo "Ignoring FRB codegen from PATH at $path_frb (${path_version:-unknown}); installing the pinned binary."
+  fi
+  install_frb_codegen
+  installed_frb="$(frb_version)"
+fi
+
+if [[ "$installed_frb" != *"$FRB_VERSION"* ]]; then
+  echo "Pinned FRB codegen verification failed at $FRB_BIN: ${installed_frb:-unknown}" >&2
+  exit 1
+fi
+
+# Use the exact Cargo install root selected above for all subsequent scripts,
+# even if an incompatible system/custom-root FRB binary appears earlier on the
+# caller's PATH.
+export PATH="$FRB_BIN_DIR:$PATH"
+
+echo "Using $FRB_BIN ($installed_frb)"
 
 ensure_plugin_android_scaffold() {
   if [ -d "$PKG/android" ]; then
@@ -57,19 +95,11 @@ ensure_plugin_android_scaffold() {
   rm -rf "$tmp"
 }
 
-# Resolve the pure-Dart package independently so VSCode's analyzer has a valid
-# package_config.json for its example/tests, not just for Flutter consumers.
 echo 'Resolving ggwave_dart dependencies...'
 (cd "$DART_PKG" && dart pub get)
 
-# The example depends on ggwave_rs_flutter as a local plugin. Native platform
-# scaffolds are intentionally generated locally rather than committed.
 ensure_plugin_android_scaffold
-
 bash "$ROOT/tool/bootstrap_flutter_native.sh"
-
-# FRB integration is allowed to regenerate platform state. Re-check after the
-# bootstrap instead of assuming the pre-bootstrap scaffold survived unchanged.
 ensure_plugin_android_scaffold
 
 if [ ! -f "$PKG/android/build.gradle" ] && [ ! -f "$PKG/android/build.gradle.kts" ]; then
@@ -77,8 +107,6 @@ if [ ! -f "$PKG/android/build.gradle" ] && [ ! -f "$PKG/android/build.gradle.kts
   exit 1
 fi
 
-# Refresh Flutter package resolution after FRB generation for both command-line
-# builds and VSCode's analysis server.
 echo 'Resolving ggwave_rs_flutter dependencies...'
 (cd "$PKG" && flutter pub get)
 
@@ -98,6 +126,13 @@ if [ ! -d android ]; then
   cp "$original_main" lib/main.dart
   rm -f "$original_pubspec" "$original_main"
 fi
+
+# The Android runner is ephemeral. `flutter create` also writes a stock widget
+# test that references MyApp and an analysis_options.yaml that depends on
+# flutter_lints. This repository restores its own main.dart/pubspec.yaml, so
+# retaining those template files only creates false VSCode analyzer errors.
+rm -f test/widget_test.dart analysis_options.yaml
+rmdir test 2>/dev/null || true
 
 manifest="android/app/src/main/AndroidManifest.xml"
 python3 - "$manifest" <<'PY'

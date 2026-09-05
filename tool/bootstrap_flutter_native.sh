@@ -10,59 +10,159 @@ if ! command -v flutter_rust_bridge_codegen >/dev/null 2>&1; then
   exit 2
 fi
 
-# FRB 2.8 uses its built-in Cargokit integration path. This package is a
-# shareable Flutter plugin, and its Rust crate already lives at ./rust.
-#
-# FRB 2.8 currently mutates pubspec.yaml and the public package barrel during
-# `integrate`, even when integration tests are disabled. Preserve both files so
-# scaffold generation cannot change the package dependency graph or public API.
 original_pubspec="$(mktemp)"
-original_barrel="$(mktemp)"
 cp pubspec.yaml "$original_pubspec"
-cp lib/ggwave_rs_flutter.dart "$original_barrel"
-restore_package_files() {
-  cp "$original_pubspec" pubspec.yaml
-  cp "$original_barrel" lib/ggwave_rs_flutter.dart
-  rm -f "$original_pubspec" "$original_barrel"
-}
-trap restore_package_files EXIT
 
+restore_pubspec() {
+  cp "$original_pubspec" pubspec.yaml
+}
+
+write_public_barrel() {
+  cat > lib/ggwave_rs_flutter.dart <<'DART'
+/// Rust-backed cross-platform ggwave transport for Flutter.
+library;
+
+export 'package:ggwave_dart/ggwave_dart.dart';
+export 'src/ggwave_flutter_transport.dart';
+DART
+}
+
+cleanup_temp_files() {
+  rm -f "$original_pubspec"
+}
+
+restore_and_cleanup() {
+  restore_pubspec
+  write_public_barrel
+  cleanup_temp_files
+}
+trap restore_and_cleanup EXIT
+
+# FRB 2.8.0 distributions in the wild expose one of two spellings for
+# disabling the integration-test template. Detect the actual CLI contract
+# instead of assuming one spelling so local VSCode and CI stay reproducible.
+integrate_help="$(flutter_rust_bridge_codegen integrate --help 2>&1)"
+if grep -q -- '--no-enable-integration-test' <<<"$integrate_help"; then
+  no_integration_test_flag='--no-enable-integration-test'
+elif grep -q -- '--no-integration-test' <<<"$integrate_help"; then
+  no_integration_test_flag='--no-integration-test'
+else
+  echo 'Unable to determine the FRB integrate flag for disabling integration tests.' >&2
+  echo "$integrate_help" >&2
+  exit 2
+fi
+
+echo "Using FRB integrate flag: $no_integration_test_flag"
 flutter_rust_bridge_codegen integrate \
   --template plugin \
-  --no-enable-integration-test
+  "$no_integration_test_flag"
 
-# FRB 2.8's plugin template still compiles against Android API 33. Current
-# Flutter 3.47 AndroidX dependencies require API 34+, and project validation
-# standardizes on API 36. Only compileSdk is normalized; min/target SDK remain
-# controlled by the generated platform scaffold.
+# Normalize only generated Android compatibility knobs. Flutter 3.47 / AGP
+# builds Kotlin with JVM 17, while some generated plugin templates still leave
+# Java source/target compatibility at 1.8. Gradle rejects that mismatch.
 if [ -f android/build.gradle ]; then
   sed -i.bak -E \
     -e 's/compileSdkVersion[[:space:]]+33/compileSdkVersion 36/g' \
     -e 's/compileSdk[[:space:]]+33/compileSdk 36/g' \
+    -e 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' \
     android/build.gradle
   rm -f android/build.gradle.bak
 fi
 if [ -f android/build.gradle.kts ]; then
   sed -i.bak -E \
     -e 's/compileSdk[[:space:]]*=[[:space:]]*33/compileSdk = 36/g' \
+    -e 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' \
     android/build.gradle.kts
   rm -f android/build.gradle.kts.bak
 fi
+
+# CPAL's Android backend reads ndk-context. Because the Rust library is loaded
+# from Dart FFI/native assets instead of an Android Activity runtime, install a
+# tiny FlutterPlugin bootstrap that passes applicationContext to Rust before
+# any CPAL call is made.
+android_plugin_src="$ROOT/tool/android/GgwaveRsFlutterPlugin.kt"
+android_plugin_dst='android/src/main/kotlin/com/dextercnx/ggwave/GgwaveRsFlutterPlugin.kt'
+if [ ! -f "$android_plugin_src" ]; then
+  echo "Missing Android context bootstrap template: $android_plugin_src" >&2
+  exit 1
+fi
+mkdir -p "$(dirname "$android_plugin_dst")"
+cp "$android_plugin_src" "$android_plugin_dst"
+
+# AGP no longer allows Android library namespace to be declared with the
+# manifest package attribute. The generated plugin build.gradle(.kts) owns the
+# namespace, so strip only this legacy attribute from the generated manifest.
+manifest='android/src/main/AndroidManifest.xml'
+if [ -f "$manifest" ]; then
+  python3 - "$manifest" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+text = re.sub(r'\s+package="[^"]+"', '', text, count=1)
+path.write_text(text)
+PY
+fi
+
 if grep -R -E 'compileSdk(Version)?[[:space:]=]+33' android --include='*.gradle' --include='*.gradle.kts'; then
   echo 'FRB Android scaffold still contains compileSdk 33 after normalization.' >&2
   exit 1
 fi
+if grep -R -F 'JavaVersion.VERSION_1_8' android --include='*.gradle' --include='*.gradle.kts'; then
+  echo 'FRB Android scaffold still contains Java 1.8 after JVM 17 normalization.' >&2
+  exit 1
+fi
+if [ -f "$manifest" ] && grep -q -E '<manifest[^>]+package=' "$manifest"; then
+  echo 'FRB Android library manifest still contains a legacy package attribute.' >&2
+  exit 1
+fi
+if [ ! -f "$android_plugin_dst" ]; then
+  echo 'Android native-context Flutter plugin was not installed.' >&2
+  exit 1
+fi
 
-# The FRB 2.8 plugin template also overlays demo/integration-test files that
-# reference its own `simple` API. ggwave_rs_flutter already has a custom Rust
-# API and tests, so these template-only artifacts must not become package API.
 rm -f rust/src/api/simple.rs
 rm -f lib/src/rust/api/simple.dart
 rm -rf test_driver integration_test
 
-restore_package_files
-trap - EXIT
+# FRB integrate mutates package-owned files. Restore them before dependency
+# resolution. The public barrel is written from a canonical definition instead
+# of restoring a snapshot, so a previously dirty/generated barrel cannot leak
+# into another bootstrap run.
+restore_pubspec
+write_public_barrel
 flutter pub get
 flutter_rust_bridge_codegen generate
 
-echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36, without changing the package manifest/public barrel or retaining template demo files.'
+# FRB 2.8 generate may append template exports such as api/simple.dart. Rewrite
+# the package-owned public barrel after generation and remove stale template
+# artifacts every time.
+restore_pubspec
+write_public_barrel
+rm -f lib/src/rust/api/simple.dart
+rm -f rust/src/api/simple.rs
+
+# Fail fast if codegen did not produce the runtime files required by transport.
+if [ ! -f lib/src/rust/frb_generated.dart ]; then
+  echo 'FRB codegen did not produce lib/src/rust/frb_generated.dart.' >&2
+  exit 1
+fi
+if [ ! -f rust/src/frb_generated.rs ]; then
+  echo 'FRB codegen did not produce rust/src/frb_generated.rs.' >&2
+  exit 1
+fi
+if grep -q "api/simple.dart" lib/ggwave_rs_flutter.dart; then
+  echo 'Stale FRB template export api/simple.dart survived bootstrap.' >&2
+  exit 1
+fi
+if ! grep -q "export 'src/ggwave_flutter_transport.dart';" lib/ggwave_rs_flutter.dart; then
+  echo 'Public Flutter transport export is missing after bootstrap.' >&2
+  exit 1
+fi
+
+cleanup_temp_files
+trap - EXIT
+
+echo 'Native Flutter scaffold and FRB bindings generated with Android compileSdk 36, JVM 17, AGP-compatible manifest, CPAL Android context bootstrap, and a canonical package-owned Dart barrel.'
