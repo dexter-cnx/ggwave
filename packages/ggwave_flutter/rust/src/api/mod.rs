@@ -63,6 +63,36 @@ fn resample_linear(samples: &[f32], source_rate: f32, target_rate: f32) -> Vec<f
     out
 }
 
+fn downmix_f32(data: &[f32], channels: usize) -> Vec<f32> {
+    data.chunks(channels)
+        .map(|frame| frame.iter().copied().sum::<f32>() / frame.len() as f32)
+        .collect()
+}
+
+fn downmix_i16(data: &[i16], channels: usize) -> Vec<f32> {
+    data.chunks(channels)
+        .map(|frame| {
+            frame
+                .iter()
+                .map(|&sample| sample as f32 / i16::MAX as f32)
+                .sum::<f32>()
+                / frame.len() as f32
+        })
+        .collect()
+}
+
+fn downmix_u16(data: &[u16], channels: usize) -> Vec<f32> {
+    data.chunks(channels)
+        .map(|frame| {
+            frame
+                .iter()
+                .map(|&sample| (sample as f32 / u16::MAX as f32) * 2.0 - 1.0)
+                .sum::<f32>()
+                / frame.len() as f32
+        })
+        .collect()
+}
+
 #[frb]
 pub fn init_rust() -> Result<()> {
     eprintln!("[GGWAVE_NATIVE] init_rust: start");
@@ -149,11 +179,12 @@ pub fn start_listening(protocol_id: i32) -> Result<()> {
         let channels = config.channels.max(1) as usize;
         let sample_rate = config.sample_rate.0 as f32;
         eprintln!(
-            "[GGWAVE_NATIVE] listen config: device={} rate={} channels={} format={:?}",
+            "[GGWAVE_NATIVE] listen config: device={} rate={} channels={} format={:?} downmix=average operating_rate={}",
             device_name,
             sample_rate,
             channels,
-            supported.sample_format()
+            supported.sample_format(),
+            ENCODE_SAMPLE_RATE
         );
         let codec = match codec_for(sample_rate) {
             Ok(codec) => codec,
@@ -218,8 +249,7 @@ pub fn start_listening(protocol_id: i32) -> Result<()> {
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &config,
                 move |data: &[f32], _| {
-                    let mono = data.chunks(channels).map(|frame| frame[0]).collect();
-                    consume(mono);
+                    consume(downmix_f32(data, channels));
                 },
                 err_fn,
                 None,
@@ -227,11 +257,7 @@ pub fn start_listening(protocol_id: i32) -> Result<()> {
             cpal::SampleFormat::I16 => device.build_input_stream(
                 &config,
                 move |data: &[i16], _| {
-                    let mono = data
-                        .chunks(channels)
-                        .map(|frame| frame[0] as f32 / i16::MAX as f32)
-                        .collect();
-                    consume(mono);
+                    consume(downmix_i16(data, channels));
                 },
                 err_fn,
                 None,
@@ -239,11 +265,7 @@ pub fn start_listening(protocol_id: i32) -> Result<()> {
             cpal::SampleFormat::U16 => device.build_input_stream(
                 &config,
                 move |data: &[u16], _| {
-                    let mono = data
-                        .chunks(channels)
-                        .map(|frame| (frame[0] as f32 / u16::MAX as f32) * 2.0 - 1.0)
-                        .collect();
-                    consume(mono);
+                    consume(downmix_u16(data, channels));
                 },
                 err_fn,
                 None,
