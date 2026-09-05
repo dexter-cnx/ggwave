@@ -1,19 +1,259 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:ggwave_rs_flutter/ggwave_rs_flutter.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-void main() {
-  // Importing the public package here intentionally keeps this example as a
-  // consumer compile check. Native codec setup is exercised by CI after FRB
-  // generation; hardware microphone/speaker validation is tracked separately.
-  runApp(
-    const MaterialApp(
-      home: Scaffold(
-        body: Center(
-          child: Text(
-            'ggwave_rs_flutter example — see README for native setup and microphone permissions',
-          ),
+void main() => runApp(const GgWaveValidationApp());
+
+class GgWaveValidationApp extends StatelessWidget {
+  const GgWaveValidationApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'ggwave Android Validation',
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
+      home: const ValidationPage(),
+    );
+  }
+}
+
+enum ValidationRole { tx, rx }
+
+class ValidationProfile {
+  const ValidationProfile(this.label, this.protocol, this.frequencyHz);
+
+  final String label;
+  final GgWaveProtocol protocol;
+  final double? frequencyHz;
+}
+
+const _profiles = <ValidationProfile>[
+  ValidationProfile('Audible Fast', GgWaveProtocol.audibleFast, null),
+  ValidationProfile('Ultrasonic 12 kHz', GgWaveProtocol.ultrasonicFast, 12000),
+  ValidationProfile('Ultrasonic 15 kHz', GgWaveProtocol.ultrasonicFast, 15000),
+  ValidationProfile('Ultrasonic 18 kHz', GgWaveProtocol.ultrasonicFast, 18000),
+];
+
+class ValidationPage extends StatefulWidget {
+  const ValidationPage({super.key});
+
+  @override
+  State<ValidationPage> createState() => _ValidationPageState();
+}
+
+class _ValidationPageState extends State<ValidationPage> {
+  final _transport = GgWaveFlutterTransport();
+  final _payloadController = TextEditingController(text: 'GGWAVE-TEST-001');
+
+  ValidationRole _role = ValidationRole.tx;
+  ValidationProfile _profile = _profiles.first;
+  bool _initialized = false;
+  bool _listening = false;
+  bool _busy = false;
+  int _sent = 0;
+  int _received = 0;
+  String _lastReceived = '—';
+  String _status = 'Not initialized';
+  StreamSubscription<Uint8List>? _messageSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _messageSub = _transport.messages.listen((bytes) {
+      if (!mounted) return;
+      setState(() {
+        _received += 1;
+        _lastReceived = utf8.decode(bytes, allowMalformed: true);
+        _status = 'Received ${bytes.length} bytes';
+      });
+    });
+  }
+
+  Future<void> _ensureInitialized() async {
+    if (_initialized) return;
+    await _transport.initialize();
+    _initialized = true;
+  }
+
+  Future<void> _applyProfile() async {
+    final hz = _profile.frequencyHz;
+    if (hz != null) {
+      await _transport.setUltrasonicFrequency(hz);
+    }
+  }
+
+  Future<void> _startListening() async {
+    setState(() => _busy = true);
+    try {
+      final permission = await Permission.microphone.request();
+      if (!permission.isGranted) {
+        setState(() => _status = 'Microphone permission denied');
+        return;
+      }
+      await _ensureInitialized();
+      await _applyProfile();
+      await _transport.startListening(protocol: _profile.protocol);
+      setState(() {
+        _listening = true;
+        _status = 'Listening: ${_profile.label}';
+      });
+    } catch (error) {
+      setState(() => _status = 'Listen error: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _stopListening() async {
+    setState(() => _busy = true);
+    try {
+      await _transport.stopListening();
+      setState(() {
+        _listening = false;
+        _status = 'Listening stopped';
+      });
+    } catch (error) {
+      setState(() => _status = 'Stop error: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _send() async {
+    final text = _payloadController.text.trim();
+    if (text.isEmpty) {
+      setState(() => _status = 'Enter a payload first');
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      await _ensureInitialized();
+      await _applyProfile();
+      final waveform = await _transport.encode(
+        Uint8List.fromList(utf8.encode(text)),
+        protocol: _profile.protocol,
+        volume: _profile.protocol.isUltrasonic ? 85 : 60,
+      );
+      await _transport.play(waveform);
+      setState(() {
+        _sent += 1;
+        _status = 'Sent ${utf8.encode(text).length} bytes via ${_profile.label}';
+      });
+    } catch (error) {
+      setState(() => _status = 'Send error: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _changeRole(ValidationRole role) async {
+    if (_listening) {
+      await _stopListening();
+    }
+    if (!mounted) return;
+    setState(() {
+      _role = role;
+      _status = role == ValidationRole.tx ? 'TX mode' : 'RX mode';
+    });
+  }
+
+  Future<void> _changeProfile(ValidationProfile? profile) async {
+    if (profile == null) return;
+    if (_listening) {
+      await _stopListening();
+    }
+    if (!mounted) return;
+    setState(() => _profile = profile);
+  }
+
+  @override
+  void dispose() {
+    _payloadController.dispose();
+    _messageSub?.cancel();
+    if (_listening) {
+      _transport.stopListening();
+    }
+    _transport.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isTx = _role == ValidationRole.tx;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('ggwave Android Validation')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            SegmentedButton<ValidationRole>(
+              segments: const [
+                ButtonSegment(value: ValidationRole.tx, label: Text('TX / Send'), icon: Icon(Icons.volume_up)),
+                ButtonSegment(value: ValidationRole.rx, label: Text('RX / Listen'), icon: Icon(Icons.mic)),
+              ],
+              selected: {_role},
+              onSelectionChanged: _busy ? null : (value) => _changeRole(value.first),
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<ValidationProfile>(
+              value: _profile,
+              decoration: const InputDecoration(labelText: 'Protocol / Frequency', border: OutlineInputBorder()),
+              items: _profiles
+                  .map((profile) => DropdownMenuItem(value: profile, child: Text(profile.label)))
+                  .toList(),
+              onChanged: _busy ? null : _changeProfile,
+            ),
+            const SizedBox(height: 16),
+            if (isTx) ...[
+              TextField(
+                controller: _payloadController,
+                maxLength: 140,
+                decoration: const InputDecoration(labelText: 'Payload', border: OutlineInputBorder()),
+              ),
+              FilledButton.icon(
+                onPressed: _busy ? null : _send,
+                icon: const Icon(Icons.send),
+                label: Text(_busy ? 'Working…' : 'Send'),
+              ),
+            ] else ...[
+              FilledButton.icon(
+                onPressed: _busy ? null : (_listening ? _stopListening : _startListening),
+                icon: Icon(_listening ? Icons.stop : Icons.mic),
+                label: Text(_listening ? 'Stop Listening' : 'Start Listening'),
+              ),
+            ],
+            const SizedBox(height: 24),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Status', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    Text(_status),
+                    const Divider(height: 24),
+                    Text('Sent: $_sent'),
+                    Text('Received: $_received'),
+                    const SizedBox(height: 8),
+                    const Text('Last received payload:'),
+                    SelectableText(_lastReceived),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Use two physical Android devices. Set one to TX and the other to RX, select the same profile on both, then send/listen. Reverse roles for the second direction.',
+            ),
+          ],
         ),
       ),
-    ),
-  );
+    );
+  }
 }
